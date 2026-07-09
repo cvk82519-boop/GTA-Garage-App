@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk, filedialog, simpledialog
 
 # === 軟體版本與更新設定 ===
-APP_VERSION = "3.9.1" 
+APP_VERSION = "4.0.0" 
 UPDATE_URL = "https://raw.githubusercontent.com/YourUsername/YourRepo/main/version.json"
 DATA_FILE = "gta5_garage_data.json"
 
@@ -122,6 +122,12 @@ class GTAGarageApp:
         self.style.map("Treeview", background=[("selected", "#2c7a43")])
         self.style.configure("TProgressbar", thickness=15, troughcolor=COLOR_CARD_BG, background="#4CAF50")
 
+        # 🐛 【Bug 修正】強制設定 Combobox 下拉清單為「深灰底 + 白字」，完美解決白底白字看不到的問題
+        self.root.option_add("*TCombobox*Listbox.background", COLOR_CARD_BG)
+        self.root.option_add("*TCombobox*Listbox.foreground", COLOR_TEXT_WHITE)
+        self.root.option_add("*TCombobox*Listbox.selectBackground", "#4CAF50")
+        self.root.option_add("*TCombobox*Listbox.selectForeground", "white")
+
         self.all_data = load_data()
         self.current_id = ""
         self.data = None
@@ -225,8 +231,11 @@ class GTAGarageApp:
         self.btn_create_profile.pack(side="right", padx=5)
         self.update_profile_combo()
 
-    # 🔄 背景自動比對更新引擎 (修正對比Bug、支援Silent自動模式)
+    # ==========================================
+    #   🔄 背景自動比對更新引擎 (安全多執行緒版)
+    # ==========================================
     def check_for_updates(self, auto=False):
+        """背景靜默檢查更新 (不卡頓UI)"""
         def task():
             try:
                 req = urllib.request.urlopen(UPDATE_URL, timeout=5)
@@ -239,19 +248,49 @@ class GTAGarageApp:
                 v_latest = [int(x) for x in latest_ver.split('.')]
                 
                 if v_latest > v_current:
-                    if messagebox.askyesno("發現新版本", f"目前版本：{APP_VERSION}\n最新版本：{latest_ver}\n\n系統發現全新優化版本，是否現在下載更新？"):
-                        self.show_toast_progress("⏳ 正在下載新版本...")
-                        new_script = urllib.request.urlopen(script_url, timeout=10).read().decode("utf-8")
-                        with open(sys.argv[0], "w", encoding="utf-8") as f: f.write(new_script)
-                        os.execv(sys.executable, ['python'] + sys.argv)
+                    # 安全切換回主執行緒呼叫 UI
+                    self.root.after(0, self.prompt_update, latest_ver, script_url)
                 else:
                     if not auto:
-                        messagebox.showinfo("更新檢查", "目前已經是最新版本！")
+                        self.root.after(0, lambda: messagebox.showinfo("更新檢查", "目前已經是最新版本！"))
             except Exception as e:
                 if not auto:
-                    messagebox.showerror("更新失敗", f"無法連線至更新伺服器：\n{e}")
+                    self.root.after(0, lambda: messagebox.showerror("更新失敗", f"無法連線至更新伺服器：\n{e}"))
+        
         threading.Thread(target=task, daemon=True).start()
 
+    def prompt_update(self, latest_ver, script_url):
+        """主執行緒：顯示更新提示對話框"""
+        ans = messagebox.askyesno(
+            "發現新版本", 
+            f"目前版本：{APP_VERSION}\n最新版本：{latest_ver}\n\n系統發現全新優化版本，是否現在下載更新？"
+        )
+        if ans:
+            self.show_toast_progress("⏳ 正在下載新版本並重啟中...")
+            # 開啟獨立執行緒進行下載覆蓋，避免主畫面卡死
+            threading.Thread(target=self.execute_hot_update, args=(script_url,), daemon=True).start()
+
+    def execute_hot_update(self, script_url):
+        """背景執行緒：執行熱更新覆蓋與自動重啟"""
+        try:
+            # 1. 下載全新程式碼
+            new_script = urllib.request.urlopen(script_url, timeout=10).read().decode("utf-8")
+            
+            # 2. 獲取當前正在執行的 Python 檔案絕對路徑
+            current_script_path = os.path.abspath(sys.argv[0])
+            
+            # 3. 寫入並覆蓋現有的程式
+            with open(current_script_path, "w", encoding="utf-8") as f: 
+                f.write(new_script)
+                
+            # 4. 瞬間重新啟動新版本的程式
+            os.execv(sys.executable, ['python'] + sys.argv)
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("更新失敗", f"自動更新過程中發生錯誤：\n{e}"))
+
+    # ==========================================
+    #   帳號與一般操作邏輯
+    # ==========================================
     def delete_profile(self):
         sel = self.combo_profile.get()
         if not sel:
