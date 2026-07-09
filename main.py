@@ -97,7 +97,7 @@ def save_data(all_data):
 class GTAGarageApp:
     def __init__(self, root):
         self.root = root
-        self.root.title(f"洛聖都資產管理系統 V{APP_VERSION} (智慧自動檢查版)")
+        self.root.title(f"洛聖都資產管理系統 V{APP_VERSION}")
         self.root.configure(bg=COLOR_MAIN_BG)
         
         # 🎯 主視窗完美螢幕居中 (Bug已修正)
