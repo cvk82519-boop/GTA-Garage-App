@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk, filedialog, simpledialog
 
 # === 軟體版本與更新設定 ===
-APP_VERSION = "4.0.1" 
+APP_VERSION = "4.1.1" 
 UPDATE_URL = "https://raw.githubusercontent.com/cvk82519-boop/GTA-Garage-App/refs/heads/main/version.json"
 DATA_FILE = "gta5_garage_data.json"
 
@@ -220,7 +220,7 @@ class GTAGarageApp:
         self.btn_login = tk.Button(top_frame, text="🔑 登入系統", command=self.login_profile, bg="#2e7d32", fg="white", font=FONT_BOLD, relief="flat", padx=8); self.btn_login.pack(side="left", padx=3)
         self.btn_logout = tk.Button(top_frame, text="🚪 安全登出", command=self.logout_profile, bg="#ef6c00", fg="white", font=FONT_BOLD, relief="flat", padx=8); self.btn_logout.pack(side="left", padx=3)
         
-        self.btn_delete_profile = tk.Button(top_frame, text="🗑️ 刪除 ID", command=self.delete_profile, bg="#c62828", fg="white", font=FONT_BOLD, relief="flat", padx=8)
+        self.btn_delete_profile = tk.Button(top_frame, text="🗑️ 刪除腳色", command=self.delete_profile, bg="#c62828", fg="white", font=FONT_BOLD, relief="flat", padx=8)
         self.btn_delete_profile.pack(side="left", padx=15)
         add_tooltip(self.btn_delete_profile, "刪除選取之角色ID，其資料庫將被永久抹除且無法復原！")
 
