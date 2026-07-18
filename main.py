@@ -5,11 +5,12 @@ import time
 import shutil
 import threading
 import urllib.request
+import webbrowser
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog, simpledialog
 
 # === 軟體版本與更新設定 ===
-APP_VERSION = "4.15.0" 
+APP_VERSION = "4.17.0" 
 UPDATE_URL = "https://raw.githubusercontent.com/cvk82519-boop/GTA-Garage-App/refs/heads/main/version.json"
 DATA_FILE = "gta5_garage_data.json"
 
@@ -230,10 +231,46 @@ class GTAGarageApp:
         menubar.add_cascade(label="視窗導覽 (V)", menu=self.nav_menu)
 
         about_menu = tk.Menu(menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
+        about_menu.add_command(label="🔄 手動檢查更新", command=self.check_for_updates)
+        about_menu.add_separator()
         about_menu.add_command(label="ℹ️ 關於本系統", command=self.show_about)
         menubar.add_cascade(label="關於 (A)", menu=about_menu)
 
         self.root.config(menu=menubar)
+
+    # ✨ 雲端更新檢測核心
+    def check_for_updates(self):
+        self.set_status("🔄 正在連線檢查最新版本...", "#2196F3")
+        def _check():
+            try:
+                req = urllib.request.Request(UPDATE_URL, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    latest_version = data.get("version", APP_VERSION)
+                    
+                    def parse_v(v_str):
+                        return [int(x) for x in str(v_str).replace("V", "").replace("v", "").split(".") if x.isdigit()]
+                    
+                    current_v = parse_v(APP_VERSION)
+                    latest_v = parse_v(latest_version)
+                    
+                    if latest_v > current_v:
+                        notes = data.get("notes", "無更新說明")
+                        url = data.get("url", "https://github.com/cvk82519-boop/GTA-Garage-App")
+                        msg = f"✨ 發現新版本：V{latest_version}\n\n目前版本：V{APP_VERSION}\n\n📝 更新內容：\n{notes}\n\n是否要開啟瀏覽器前往下載？"
+                        def show_update_dialog():
+                            if messagebox.askyesno("更新通知", msg):
+                                webbrowser.open(url)
+                            self.set_status(f"✨ 發現新版本：V{latest_version}，建議盡快前往更新！", "#4CAF50")
+                        self.root.after(0, show_update_dialog)
+                    else:
+                        self.root.after(0, lambda: messagebox.showinfo("檢查更新", f"太棒了！您目前使用的 V{APP_VERSION} 已經是最新的雲端版本！"))
+                        self.root.after(0, lambda: self.set_status("✅ 系統已是最新版本。", "#4CAF50"))
+            except Exception as e:
+                self.root.after(0, lambda: messagebox.showerror("更新錯誤", f"無法連接至更新伺服器，請確認網路連線。\n\n詳細錯誤訊息：{e}"))
+                self.root.after(0, lambda: self.set_status("❌ 檢查更新失敗，請稍後再試。", "#e74c3c"))
+                
+        threading.Thread(target=_check, daemon=True).start()
 
     def safe_select_tab(self, tab_widget):
         state = self.notebook.tab(tab_widget, "state")
@@ -516,25 +553,22 @@ class GTAGarageApp:
         text_area = tk.Text(self.tab_bulletin, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, relief="solid", padx=20, pady=20, wrap="word"); text_area.pack(fill="both", expand=True, padx=40, pady=(0, 40))
         content = f"""【系統更新公告】
 
-🌟 最新版本：V{APP_VERSION} 自訂排序版
+🌟 最新版本：V{APP_VERSION} 終極修復版
 📅 更新日期：2026-07-19
 
 📝 本次版本修改與新增項目：
-1. [新增] 獨立車庫排序功能：車庫管理分頁左側新增「↕️ 自訂車庫順序」按鈕。您可以打開排序視窗，自由將最常用的車庫或分類群組上移/下移，打造最順手的版面！
-2. [優化] 全域同步：當您調整並儲存車庫順序後，車輛管理分頁的「存放位置」下拉選單也會同步依照您的新順序排列，讓輸入更加行雲流水！
+1. [修復] 致命語法錯誤：修復了 4.16.0 導致軟體完全無法開啟的程式碼打字錯誤。
+2. [整合] 功能完美合併：現在已同時包含「🔄 雲端手動更新檢查」與「↕️ 自訂車庫順序」兩大實用功能！
 
 --------------------------------------------------
 【歷史更新回顧】
 
+🔸 版本：V4.16.0 / V4.15.0
+- [新增] 雲端更新檢測：在上方選單「關於」中新增了「🔄 手動檢查更新」功能。
+- [新增] 獨立車庫排序功能：車庫管理分頁左側新增「↕️ 自訂車庫順序」按鈕。
+
 🔸 版本：V4.14.0
 - [新增] 房產車庫群組化分類：所有車庫現在會依照「房產分類」進行群組化顯示。
-- [優化] 豪宅專屬分類：系統已自動將您指定的「通瓦別墅」、「利金漫莊園」、「好麥塢宅第」歸類在專屬的【 豪宅 】分類中。
-
-🔸 版本：V4.13.0
-- [新增] 編輯視窗內建刪除功能。
-
-🔸 版本：V4.12.0
-- [極簡] 介面大瘦身：移除了面板上的「勾選可見」與「清空勾選」按鈕。
 """
         text_area.insert("1.0", content); text_area.config(state="disabled")
 
@@ -943,6 +977,7 @@ class GTAGarageApp:
 
             def delete_action():
                 if messagebox.askyesno("確認刪除", f"確定要刪除選定的 【 1 】 筆資料嗎？", parent=win):
+                    # 🔥 修復此處的語法錯誤
                     del self.data["vehicles"][idx]
                     self.checked_indices.discard(idx)
                     self.update_checked_button_text()
@@ -1199,7 +1234,7 @@ class GTAGarageApp:
             if not new_name: return
             if new_name != old_name:
                 for v in self.data["vehicles"]:
-                    if v.get("garage") == old_name: v["garage"] = new_name
+                    if v.get("garage") == old_name: v["garage"] = new_name # 🔥 語法修復
             self.data["special_vehicles"][idx].update({"name": new_name, "inner_vehicle": new_inner, "can_store": new_store})
             
             self.sync_vehicles_from_special(); save_data(self.all_data)
@@ -1253,7 +1288,6 @@ class GTAGarageApp:
         
         ttk.Separator(left_frame, orient="horizontal").pack(fill="x", pady=15)
         
-        # ✨ 自訂排序按鈕
         tk.Label(left_frame, text="↕️ 進階管理", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#F39C12").pack(pady=(5, 10))
         self.btn_reorder_garage = tk.Button(left_frame, text="↕️ 自訂車庫順序", command=self.open_reorder_window, bg="#F39C12", fg="white", font=FONT_BOLD, relief="flat")
         self.btn_reorder_garage.pack(fill="x", pady=5)
