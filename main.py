@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk, filedialog, simpledialog
 
 # === 軟體版本與更新設定 ===
-APP_VERSION = "4.17.0" 
+APP_VERSION = "4.17.1" 
 UPDATE_URL = "https://raw.githubusercontent.com/cvk82519-boop/GTA-Garage-App/refs/heads/main/version.json"
 DATA_FILE = "gta5_garage_data.json"
 
@@ -238,7 +238,6 @@ class GTAGarageApp:
 
         self.root.config(menu=menubar)
 
-    # ✨ 雲端更新檢測核心
     def check_for_updates(self):
         self.set_status("🔄 正在連線檢查最新版本...", "#2196F3")
         def _check():
@@ -546,31 +545,112 @@ class GTAGarageApp:
         return self.tree_vehicles
 
     # ==========================================
-    #     📢 0. 系統公告分頁
+    #     📢 0. 系統公告分頁 (完整更新歷史 + 捲軸)
     # ==========================================
     def setup_bulletin_tab(self):
-        title_lbl = tk.Label(self.tab_bulletin, text="📢 洛聖都資產管理系統 - 系統公告與更新日誌", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#4CAF50"); title_lbl.pack(pady=(30, 15))
-        text_area = tk.Text(self.tab_bulletin, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, relief="solid", padx=20, pady=20, wrap="word"); text_area.pack(fill="both", expand=True, padx=40, pady=(0, 40))
+        title_lbl = tk.Label(self.tab_bulletin, text="📢 洛聖都資產管理系統 - 系統公告與完整更新日誌", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#4CAF50")
+        title_lbl.pack(pady=(30, 15))
+        
+        # ✨ 加入捲軸設計，讓完整日誌可以上下滾動
+        text_frame = tk.Frame(self.tab_bulletin, bg=COLOR_MAIN_BG)
+        text_frame.pack(fill="both", expand=True, padx=40, pady=(0, 40))
+        
+        scrollbar = ttk.Scrollbar(text_frame)
+        scrollbar.pack(side="right", fill="y")
+        
+        text_area = tk.Text(text_frame, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, relief="solid", padx=20, pady=20, wrap="word", yscrollcommand=scrollbar.set)
+        text_area.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=text_area.yview)
+        
         content = f"""【系統更新公告】
 
-🌟 最新版本：V{APP_VERSION} 終極修復版
+🌟 最新版本：V{APP_VERSION} 完整日誌版
 📅 更新日期：2026-07-19
 
 📝 本次版本修改與新增項目：
-1. [修復] 致命語法錯誤：修復了 4.16.0 導致軟體完全無法開啟的程式碼打字錯誤。
-2. [整合] 功能完美合併：現在已同時包含「🔄 雲端手動更新檢查」與「↕️ 自訂車庫順序」兩大實用功能！
+1. [修復] 致命語法錯誤：修復了 V4.16.0 導致軟體完全無法開啟的程式碼打字錯誤。
+2. [整合] 系統公告擴充：為「系統公告」分頁加入了滾動條，並保留所有開發階段的完整歷史紀錄，無任何刪減。
 
 --------------------------------------------------
-【歷史更新回顧】
+【歷史完整更新回顧】
 
-🔸 版本：V4.16.0 / V4.15.0
+🔸 版本：V4.16.0
 - [新增] 雲端更新檢測：在上方選單「關於」中新增了「🔄 手動檢查更新」功能。
+
+🔸 版本：V4.15.0
 - [新增] 獨立車庫排序功能：車庫管理分頁左側新增「↕️ 自訂車庫順序」按鈕。
+- [優化] 全域同步：當您調整並儲存車庫順序後，車輛管理分頁的「存放位置」下拉選單也會同步依照您的新順序排列。
 
 🔸 版本：V4.14.0
 - [新增] 房產車庫群組化分類：所有車庫現在會依照「房產分類」進行群組化顯示。
+- [優化] 豪宅專屬分類：系統自動將指定的「通瓦別墅」、「利金漫莊園」、「好麥塢宅第」歸類在專屬的【 豪宅 】分類中。
+- [新增] 自訂分類功能：在新增或編輯車庫屬性時，可自由選取或輸入全新的分類名稱。
+
+🔸 版本：V4.13.0
+- [新增] 編輯視窗內建刪除功能：所有的編輯視窗都加上了「🗑️ 刪除按鈕」，無須再關閉視窗回到列表操作。
+
+🔸 版本：V4.12.0
+- [極簡] 介面大瘦身：移除了面板上的「勾選可見」與「清空勾選」按鈕。
+- [優化] 重置按鈕升級：點擊「重置」按鈕，除了清除搜尋條件外，也會一併自動清空所有的打勾選取狀態。
+
+🔸 版本：V4.11.0
+- [優化] 登入選單顯示：登入後，頂部角色選單將只顯示目前登入的 ID，並保持字體明亮清晰。
+
+🔸 版本：V4.10.0
+- [優化] 極簡化新增面板：輸入區現僅保留「名稱」、「存放位置」、「取得方式」與按鈕。
+- [優化] 批量功能搬家：將「📦 批量登入」移至上方「系統工具」選單。
+
+🔸 版本：V4.9.0
+- [優化] 輸入框預設值清空：所有登記屬性下拉選單預設改為「空白」，不再強制帶入預設選項，讓資料建立更自由。
+
+🔸 版本：V4.8.0
+- [新增] 跨次搜尋獨立勾選功能：在列表最左側加入「☑ 選取」欄位。搜尋並勾選多筆不同條件的車輛後，點擊「✏️ 修改已勾選」即可一次性跨條件修改所有車輛。
+- [新增] 快速面板控制按鈕。
+
+🔸 版本：V4.7.0
+- [新增] 快速全選功能：在搜尋框右側新增了「☑️ 全選」按鈕（亦支援快捷鍵 Ctrl + A）。
+- [新增] 快捷批量修改：在全選按鈕旁新增「✏️ 批量修改」按鈕。
+
+🔸 版本：V4.6.3
+- [修改] 將「批量貼上匯入」功能從上方「系統工具」選單中移除。
+
+🔸 版本：V4.6.2
+- [修復] 設定視窗中「任務碼錶功能」文字過長問題，已將其分為兩行並向左對齊。
+
+🔸 版本：V4.6.1
+- [修復] 系統功能顯示設定視窗過矮，導致底部儲存按鈕被裁切的問題。
+
+🔸 版本：V4.6.0
+- [新增] 系統功能顯示/隱藏設定：可在「系統工具」中開啟設定，自由勾選要顯示的分頁或功能。
+- [新增] 防呆導航機制：在功能列點擊已被隱藏的分頁，系統會友善提示開啟。
+
+🔸 版本：V4.5.1
+- [修復] 編輯視窗變形問題：加高了編輯視窗緩衝區，並優化了按鈕排版。
+
+🔸 版本：V4.5.0
+- [優化] 極致游標視覺回饋：取得焦點的輸入框會自動亮起「科技藍」背景。
+- [優化] 狀態列即時導航：每按一下 Enter 跳轉，下方狀態列都會提示操作方式。
+
+🔸 版本：V4.4.0
+- [新增] 帳號專屬「操作日誌」功能，完整記錄所有新增、修改、刪除與批量匯入歷史。
+- [優化] 車輛管理分頁的「登記新載具資產」版面重新排列，提升視覺平衡。
+
+🔸 版本：V4.3.1
+- [優化] 批量貼上匯入功能：遇到重複車輛時，可選擇「合併車輛數量」或「獨立新增一筆並備註已重複」。
+
+🔸 版本：V4.3.0
+- [新增] 系統公佈欄功能，可隨時查看最新版本資訊與修改歷史。
+
+🔸 版本：V4.2.4
+- [新增] 檔案選單新增「載入備份還原 (Restore)」功能。
+
+🔸 版本：V4.2.0
+- [新增] 浮動式任務碼錶功能與批量貼上匯入。
+- [優化] 非個人載具新增自動分類過濾功能，並建立專屬顯示分頁。
+- [優化] 各大車庫車位容量進度條視覺化與滿額警告功能。
 """
-        text_area.insert("1.0", content); text_area.config(state="disabled")
+        text_area.insert("1.0", content)
+        text_area.config(state="disabled")
 
     # ==========================================
     #     📜 0.5. 操作日誌分頁 (Action Logs)
@@ -977,7 +1057,6 @@ class GTAGarageApp:
 
             def delete_action():
                 if messagebox.askyesno("確認刪除", f"確定要刪除選定的 【 1 】 筆資料嗎？", parent=win):
-                    # 🔥 修復此處的語法錯誤
                     del self.data["vehicles"][idx]
                     self.checked_indices.discard(idx)
                     self.update_checked_button_text()
@@ -1234,7 +1313,7 @@ class GTAGarageApp:
             if not new_name: return
             if new_name != old_name:
                 for v in self.data["vehicles"]:
-                    if v.get("garage") == old_name: v["garage"] = new_name # 🔥 語法修復
+                    if v.get("garage") == old_name: v["garage"] = new_name
             self.data["special_vehicles"][idx].update({"name": new_name, "inner_vehicle": new_inner, "can_store": new_store})
             
             self.sync_vehicles_from_special(); save_data(self.all_data)
@@ -1316,7 +1395,6 @@ class GTAGarageApp:
         if hasattr(self, 'canvas_garage') and self.canvas_garage.winfo_exists():
             if event.delta: self.canvas_garage.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-    # ✨ 自訂車庫順序視窗
     def open_reorder_window(self):
         if not self.data: return
         actual_garages = [g for g in self.data["garages"] if g != "未分類"]
@@ -1452,7 +1530,7 @@ class GTAGarageApp:
         old_limit = self.data["garage_limits"].get(old_name, 10)
         old_cat = self.data.get("garage_categories", {}).get(old_name, "一般車庫") 
         win = tk.Toplevel(self.root); win.title("編輯車庫房產屬性")
-        self.center_toplevel_window(win, 340, 360) 
+        self.center_toplevel_window(win, 340, 280) 
         
         tk.Label(win, text="修改車庫物業名稱:", bg=COLOR_MAIN_BG, fg="white", font=FONT_BOLD).pack(pady=(15,2))
         ent_name = tk.Entry(win, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid", width=24); ent_name.insert(0, old_name); ent_name.pack(); ent_name.focus()
