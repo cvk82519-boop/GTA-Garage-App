@@ -30,7 +30,7 @@ except ImportError:
     HAS_OCR = False
 
 # === 軟體版本與更新設定 ===
-APP_VERSION = "4.54.0" 
+APP_VERSION = "4.53.0 🚀 終極資產大亨版" 
 UPDATE_URL = "https://raw.githubusercontent.com/cvk82519-boop/GTA-Garage-App/refs/heads/main/version.json"
 DATA_FILE = "gta5_garage_data.json"
 
@@ -465,7 +465,6 @@ class GTAGarageApp:
             self.all_data["app_config"]["bulletin_text"] = new_text
             save_data(self.all_data)
             
-            # ✨ 即時更新系統公告版面
             self.refresh_bulletin_display()
             self.show_toast_progress("✅ 全域公告已更新並發布！")
             win.destroy()
@@ -1293,7 +1292,7 @@ class GTAGarageApp:
             
         self.update_garage_comboboxes(); self.update_acquire_comboboxes(); self.refresh_vehicle_tables(); self.refresh_special_table(); self.refresh_garage_table(); self.apply_settings()
         if is_logged_in: 
-            self.refresh_bulletin_display() # 🆕 登入時載入最新公告
+            self.refresh_bulletin_display()
             self.refresh_logs_display()
             self.refresh_wishlist_table()
             self.update_checked_button_text()
@@ -2467,7 +2466,6 @@ class GTAGarageApp:
             tk.Label(win, text="資產數量:", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(6,2)); ent_count.insert(0, str(car.get('count', 1))); ent_count.pack()
             tk.Label(win, text="自訂備註:", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(6,2)); ent_notes.insert(0, car.get('notes', '')); ent_notes.pack()
             
-            # ✨ 動態鎖定/解鎖機制：優化版，允許連動脫逃
             def on_edit_combobox_change(e=None):
                 if e:
                     if e.widget == combo_edit_garage:
@@ -2601,7 +2599,6 @@ class GTAGarageApp:
                     if up_g: self.data["vehicles"][idx]['garage'] = new_g
                     if combo_batch_vtype.get() != "[不修改]": self.data["vehicles"][idx]['v_type'] = combo_batch_vtype.get()
                     
-                    # ✨ 解除帕格薩斯鎖定陷阱：同步脫離
                     if up_g and new_g == "帕格薩斯":
                         self.data["vehicles"][idx]['v_type'] = "帕格薩斯"
                     elif combo_batch_vtype.get() == "帕格薩斯":
@@ -2616,7 +2613,6 @@ class GTAGarageApp:
                     
                     if var_update_notes.get(): self.data["vehicles"][idx]['notes'] = ent_batch_notes.get()
                     
-                    # ✨ 帕格薩斯強制屬性
                     if self.data["vehicles"][idx]['garage'] == "帕格薩斯" or self.data["vehicles"][idx]['v_type'] == "帕格薩斯":
                         self.data["vehicles"][idx]['upgraded'] = "不可改裝"
                         self.data["vehicles"][idx]['count'] = 1
@@ -3192,4 +3188,34 @@ class GTAGarageApp:
             if messagebox.askyesno("安全確認", f"您確定要拆除變賣車庫「{old_name}」嗎？\n(車庫內的車輛將自動撤回「未分類」車庫)", parent=win):
                 if old_name in self.data["garages"]: self.data["garages"].remove(old_name)
                 if old_name in self.data["garage_limits"]: del self.data["garage_limits"][old_name]
-                if old_name in self.data.get("garage_categories", {}): del self.data["garage我的程式設計裡沒有這樣的功能。
+                if old_name in self.data.get("garage_categories", {}): del self.data["garage_categories"][old_name] 
+                for v in self.data["vehicles"]:
+                    if v.get("garage") == old_name: v["garage"] = "未分類"
+                    
+                for sv in self.data.get("special_vehicles", []):
+                    if sv.get("location") == old_name: sv["location"] = "未分類"
+                    
+                save_data(self.all_data)
+                self.log_action(f"🏠 變賣/拆除車庫：已移除物業【{old_name}】")
+                self.refresh_garage_table(); self.apply_filters(); self.update_garage_comboboxes()
+                self.refresh_special_table() 
+                self.set_status(f"🏠 房地產中心：已成功出售變賣物業【{old_name}】。", "#FF9800")
+                win.destroy()
+            
+        btn_frame = tk.Frame(win, bg=COLOR_MAIN_BG)
+        btn_frame.pack(fill="x", padx=35, pady=15)
+        ttk.Button(btn_frame, text="保存修改", command=save, style="Success.TButton").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
+        ttk.Button(btn_frame, text="🗑️ 拆除物業", command=delete_garage_action, style="Danger.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
+        ent_name.bind("<Return>", lambda e: combo_cat.focus()); combo_cat.bind("<Return>", lambda e: ent_limit.focus()); ent_limit.bind("<Return>", save)
+
+if __name__ == "__main__":
+    try:
+        root = tk.Tk()
+        app = GTAGarageApp(root)
+        root.mainloop()
+    except Exception as e:
+        import traceback
+        err_root = tk.Tk()
+        err_root.withdraw()
+        messagebox.showerror("系統崩潰報告", f"程式啟動失敗，錯誤代碼：\n\n{traceback.format_exc()}")
+        err_root.destroy()
