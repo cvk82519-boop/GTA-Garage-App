@@ -8,6 +8,7 @@ import urllib.request
 import webbrowser
 import tkinter as tk
 import re
+import csv
 from tkinter import messagebox, ttk, filedialog, simpledialog
 from collections import defaultdict
 
@@ -27,7 +28,7 @@ except ImportError:
     HAS_OCR = False
 
 # === 軟體版本與更新設定 ===
-APP_VERSION = "4.45.0" 
+APP_VERSION = "4.52.0 📚 攻略圖鑑內建版" 
 UPDATE_URL = "https://raw.githubusercontent.com/cvk82519-boop/GTA-Garage-App/refs/heads/main/version.json"
 DATA_FILE = "gta5_garage_data.json"
 
@@ -115,7 +116,6 @@ def save_data(all_data):
                 if "未分類" in p_data["garages"]: p_data["garages"].insert(p_data["garages"].index("未分類") + 1, "帕格薩斯")
                 else: p_data["garages"].insert(0, "帕格薩斯")
                 
-        # 移除舊版誤建在特殊載具中的帕格薩斯
         if "special_vehicles" in p_data:
             p_data["special_vehicles"] = [sv for sv in p_data["special_vehicles"] if sv["name"] != "帕格薩斯"]
             
@@ -149,9 +149,12 @@ def save_data(all_data):
         defaults = {
             "tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True,
             "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True,
+            "tab_guides": True, # 🆕 新增攻略分頁設定
             "tool_stopwatch": True, "disable_all_limits": False,
             "default_garage_limit": 10, "default_special_limit": 2,
-            "default_countdown_sec": 300.0 
+            "default_countdown_sec": 300.0,
+            "hotkey_pause": "pause", "hotkey_start": "w",
+            "visible_columns": ["check", "name", "garage", "vtype", "acquire", "upgrade", "count", "notes"]
         }
         for k, v in defaults.items():
             if k not in p_data["app_settings"]:
@@ -171,7 +174,7 @@ def save_data(all_data):
 class GTAGarageApp:
     def __init__(self, root):
         self.root = root
-        self.root.title(f"洛聖都資產管理系統 V{APP_VERSION}")
+        self.root.title(f"洛聖都資產管理系統 {APP_VERSION}")
         self.root.configure(bg=COLOR_MAIN_BG)
         
         self.root.resizable(True, True)
@@ -179,7 +182,13 @@ class GTAGarageApp:
         
         self.all_data = load_data()
         
-        app_config = self.all_data.get("app_config", {})
+        # 👑 管理員與全域設定初始化
+        self.is_admin = False
+        app_config = self.all_data.setdefault("app_config", {})
+        if "admin_pwd" not in app_config: app_config["admin_pwd"] = "admin888"
+        if "bulletin_text" not in app_config: 
+            app_config["bulletin_text"] = f"【系統更新公告】\n\n🌟 最新版本：{APP_VERSION}\n📅 系統預設公告\n\n歡迎使用洛聖都資產管理系統，管理員可隨時透過上方選單修改此處內容！"
+        
         saved_geom = app_config.get("geometry", "")
         saved_state = app_config.get("state", "normal")
         
@@ -213,6 +222,24 @@ class GTAGarageApp:
         self.style.map('TCombobox', 
                        fieldbackground=[('focus', COLOR_FOCUS_BG), ('readonly', COLOR_CARD_BG)], 
                        foreground=[('focus', 'white'), ('readonly', COLOR_TEXT_WHITE)])
+                       
+        # === ✨ 統一扁平化/現代化按鈕 Style 設定 ===
+        self.style.configure("TButton", font=FONT_BOLD, padding=6, relief="flat")
+        btn_colors = {
+            "Success": ("#4CAF50", "#45a049"),
+            "Danger": ("#e74c3c", "#d32f2f"),
+            "Primary": ("#3498db", "#1976D2"),
+            "Warning": ("#F39C12", "#F57C00"),
+            "Purple": ("#9b59b6", "#8e44ad"),
+            "Pink": ("#e91e63", "#c2185b"),
+            "Secondary": ("#555555", "#424242"),
+            "Dark": ("#333333", "#111111")
+        }
+        for name, (bg, active_bg) in btn_colors.items():
+            self.style.configure(f"{name}.TButton", background=bg, foreground="white", bordercolor=bg, lightcolor=bg, darkcolor=bg)
+            self.style.map(f"{name}.TButton",
+                           background=[("active", active_bg), ("pressed", active_bg)],
+                           foreground=[("active", "white")])
         
         save_data(self.all_data) 
         
@@ -232,23 +259,48 @@ class GTAGarageApp:
         self.keyboard_warned = False
         
         self.root.after(50, self.master_stopwatch_loop)
-
-        self.setup_menu_bar()
-        self.setup_status_bar()
-        self.setup_profile_bar()
         
+        # === 確保先建立分頁字典 ===
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True, padx=8, pady=5)
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
         
-        self.tab_bulletin = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.notebook.add(self.tab_bulletin, text=" 📢 系統公告 ")
-        self.tab_vehicles = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.notebook.add(self.tab_vehicles, text=" 🚗 車輛管理 ")
-        self.tab_non_personal = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.notebook.add(self.tab_non_personal, text=" 🚜 非個人與帕格薩斯 ")
-        self.tab_special = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.notebook.add(self.tab_special, text=" 🚁 特殊載具 ")
-        self.tab_garages = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.notebook.add(self.tab_garages, text=" 🏠 車庫管理 ")
-        self.tab_statistics = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.notebook.add(self.tab_statistics, text=" 📊 統計資料 ")
-        self.tab_logs = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.notebook.add(self.tab_logs, text=" 📜 操作日誌 ")
+        self.tab_bulletin = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
+        self.tab_vehicles = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
+        self.tab_non_personal = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
+        self.tab_special = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
+        self.tab_garages = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
+        self.tab_statistics = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
+        self.tab_logs = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
+        self.tab_guides = tk.Frame(self.notebook, bg=COLOR_MAIN_BG) # 🆕 攻略分頁
 
+        self.tab_widgets = {
+            "📢 系統公告": self.tab_bulletin,
+            "🚗 車輛管理": self.tab_vehicles,
+            "🚜 非個人與帕格薩斯": self.tab_non_personal,
+            "🚁 特殊載具": self.tab_special,
+            "🏠 車庫管理": self.tab_garages,
+            "📊 統計資料": self.tab_statistics,
+            "📜 操作日誌": self.tab_logs,
+            "📚 攻略資料": self.tab_guides # 🆕
+        }
+        
+        default_tab_order = list(self.tab_widgets.keys())
+        self.tab_order = app_config.get("tab_order", default_tab_order)
+        for t in default_tab_order:
+            if t not in self.tab_order: self.tab_order.append(t)
+            
+        for t_name in self.tab_order:
+            if t_name in self.tab_widgets:
+                self.notebook.add(self.tab_widgets[t_name], text=f" {t_name} ")
+        
+        # === 初始化選單與全局控制區 ===
+        self.setup_menu_bar()
+        self.setup_profile_bar()
+        self.setup_global_toolbar()
+        self.setup_status_bar()
+
+        # === 建立分頁內容 ===
         self.setup_bulletin_tab()
         self.setup_vehicles_tab()
         self.setup_non_personal_tab()
@@ -256,6 +308,7 @@ class GTAGarageApp:
         self.setup_garages_tab()
         self.setup_statistics_tab() 
         self.setup_logs_tab()
+        self.setup_guides_tab() # 🆕
 
         self.apply_settings()
         self.check_login_status()
@@ -280,38 +333,227 @@ class GTAGarageApp:
     #   🌟 頂端功能列 (Menu Bar)
     # ==========================================
     def setup_menu_bar(self):
-        menubar = tk.Menu(self.root)
-        file_menu = tk.Menu(menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
+        self.menubar = tk.Menu(self.root)
+        
+        # 帳號管理專屬選單
+        self.account_menu = tk.Menu(self.menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
+        self.account_menu.add_command(label="➕ 新建角色 ID", command=self.create_profile)
+        self.account_menu.add_command(label="🗑️ 刪除所選角色 (需先登出)", command=self.delete_profile)
+        self.menubar.add_cascade(label="帳號管理 (P)", menu=self.account_menu)
+
+        file_menu = tk.Menu(self.menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
         file_menu.add_command(label="💾 手動備份資料 (Backup)", command=self.backup_data)
         file_menu.add_command(label="📂 載入備份還原 (Restore)", command=self.restore_data) 
+        file_menu.add_command(label="📥 匯出資料為 CSV (Export)", command=self.export_csv)
         file_menu.add_separator()
         file_menu.add_command(label="🚪 結束系統 (Exit)", command=self.on_app_closing)
-        menubar.add_cascade(label="檔案 (F)", menu=file_menu)
+        self.menubar.add_cascade(label="檔案 (F)", menu=file_menu)
 
-        self.tools_menu = tk.Menu(menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
+        self.tools_menu = tk.Menu(self.menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
         self.tools_menu.add_command(label="⏱️ 呼叫賽車與任務碼錶 (Pause準備/W計時/倒數)", command=self.toggle_stopwatch_window)
         self.tools_menu.add_command(label="📦 批量登入", command=self.open_batch_import_window) 
         self.tools_menu.add_separator()
-        self.tools_menu.add_command(label="⚙️ 系統全域與版面設定 (版面/容量/選單)", command=self.open_settings_window)
-        menubar.add_cascade(label="系統工具 (T)", menu=self.tools_menu)
+        self.tools_menu.add_command(label="⚙️ 系統全域與版面設定 (版面/容量/選單/快捷鍵)", command=self.open_settings_window)
+        self.menubar.add_cascade(label="系統工具 (T)", menu=self.tools_menu)
         
-        self.nav_menu = tk.Menu(menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
-        self.nav_menu.add_command(label="📢 前往 系統公告", command=lambda: self.safe_select_tab(self.tab_bulletin))
-        self.nav_menu.add_command(label="🚗 前往 車輛管理", command=lambda: self.safe_select_tab(self.tab_vehicles))
-        self.nav_menu.add_command(label="🚜 前往 非個人與帕格薩斯", command=lambda: self.safe_select_tab(self.tab_non_personal))
-        self.nav_menu.add_command(label="🚁 前往 特殊載具", command=lambda: self.safe_select_tab(self.tab_special))
-        self.nav_menu.add_command(label="🏠 前往 車庫管理", command=lambda: self.safe_select_tab(self.tab_garages))
-        self.nav_menu.add_command(label="📊 前往 統計資料", command=lambda: self.safe_select_tab(self.tab_statistics)) 
-        self.nav_menu.add_command(label="📜 前往 操作日誌", command=lambda: self.safe_select_tab(self.tab_logs))
-        menubar.add_cascade(label="視窗導覽 (V)", menu=self.nav_menu)
+        self.nav_menu = tk.Menu(self.menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
+        for t_name in self.tab_widgets.keys():
+            self.nav_menu.add_command(label=f"前往 {t_name}", command=lambda w=self.tab_widgets[t_name]: self.safe_select_tab(w))
+        self.menubar.add_cascade(label="視窗導覽 (V)", menu=self.nav_menu)
 
-        about_menu = tk.Menu(menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
+        about_menu = tk.Menu(self.menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
         about_menu.add_command(label="🔄 手動檢查更新", command=self.check_for_updates)
         about_menu.add_separator()
         about_menu.add_command(label="ℹ️ 關於本系統", command=self.show_about)
-        menubar.add_cascade(label="關於 (A)", menu=about_menu)
+        self.menubar.add_cascade(label="關於 (A)", menu=about_menu)
 
-        self.root.config(menu=menubar)
+        # 👑 管理員選單 (預設隱藏/停用)
+        self.admin_menu = tk.Menu(self.menubar, tearoff=0, bg="#e91e63", fg="white", font=FONT_BOLD)
+        self.admin_menu.add_command(label="📝 編輯系統全域公告", command=self.open_bulletin_editor)
+        self.admin_menu.add_command(label="🔄 動態分頁顯示順序", command=self.open_tab_reorder_window)
+        self.admin_menu.add_command(label="👥 全局玩家帳號管理", command=self.open_master_account_manager)
+        self.admin_menu.add_separator()
+        self.admin_menu.add_command(label="🔑 修改管理員密碼", command=self.change_admin_password)
+        self.admin_menu.add_command(label="🚪 安全登出管理員", command=self.logout_admin)
+        self.menubar.add_cascade(label="👑 管理員 (Admin)", menu=self.admin_menu)
+        self.menubar.entryconfig("👑 管理員 (Admin)", state="disabled")
+
+        self.root.config(menu=self.menubar)
+
+    # === 👁️ 動態顯示/隱藏欄位設定 ===
+    def open_column_selector(self):
+        if not self.data:
+            messagebox.showwarning("操作提示", "請先登入角色 ID 以設定顯示欄位！")
+            return
+            
+        win = tk.Toplevel(self.root)
+        win.title("👁️ 顯示/隱藏自訂欄位")
+        self.center_toplevel_window(win, 300, 420)
+        win.configure(bg=COLOR_CARD_BG)
+        
+        tk.Label(win, text="請勾選您想在表格中顯示的欄位：", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#3498db").pack(pady=(15, 10))
+        
+        all_cols = {
+            "check": "☑ 選取方塊", 
+            "name": "車輛名稱", 
+            "garage": "存放位置", 
+            "vtype": "車輛類型", 
+            "acquire": "取得方式", 
+            "upgrade": "改裝狀態", 
+            "count": "資產數量", 
+            "notes": "自訂備註"
+        }
+        
+        current_visible = self.data.get("app_settings", {}).get("visible_columns", list(all_cols.keys()))
+        
+        frame_checks = tk.Frame(win, bg=COLOR_CARD_BG)
+        frame_checks.pack(fill="both", expand=True, padx=40)
+        
+        vars_dict = {}
+        for col_id, col_name in all_cols.items():
+            var = tk.BooleanVar(value=(col_id in current_visible))
+            vars_dict[col_id] = var
+            chk = tk.Checkbutton(frame_checks, text=col_name, variable=var, bg=COLOR_CARD_BG, fg="white", selectcolor="#757575", font=FONT_BOLD, activebackground=COLOR_CARD_BG, activeforeground="white")
+            chk.pack(anchor="w", pady=4)
+            
+        def save_cols():
+            new_visible = [c_id for c_id, v in vars_dict.items() if v.get()]
+            if not new_visible:
+                messagebox.showwarning("警告", "請至少保留一個顯示欄位！", parent=win)
+                return
+            
+            self.data["app_settings"]["visible_columns"] = new_visible
+            save_data(self.all_data)
+            
+            # 即時套用至現有表格
+            if hasattr(self, 'tree_vehicles') and self.tree_vehicles.winfo_exists():
+                self.tree_vehicles["displaycolumns"] = new_visible
+            if hasattr(self, 'tree_non_personal') and self.tree_non_personal.winfo_exists():
+                self.tree_non_personal["displaycolumns"] = new_visible
+                
+            self.show_toast_progress("✅ 欄位顯示設定已更新！")
+            win.destroy()
+            
+        ttk.Button(win, text="💾 儲存並即時套用", command=save_cols, style="Success.TButton").pack(fill="x", padx=40, pady=(10, 20), ipady=4)
+
+    # === 👑 管理員專屬功能 ===
+    def open_bulletin_editor(self):
+        win = tk.Toplevel(self.root); win.title("📝 編輯全域系統公告")
+        self.center_toplevel_window(win, 650, 550)
+        tk.Label(win, text="請在此編輯所有玩家看到的系統公告 (支援多行)：", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#4CAF50").pack(pady=10)
+        
+        text_area = tk.Text(win, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", wrap="word", relief="solid", padx=15, pady=15)
+        text_area.insert("1.0", self.all_data["app_config"].get("bulletin_text", ""))
+        text_area.pack(fill="both", expand=True, padx=20, pady=5)
+        
+        def save_bulletin():
+            new_text = text_area.get("1.0", "end-1c")
+            self.all_data["app_config"]["bulletin_text"] = new_text
+            save_data(self.all_data)
+            
+            if hasattr(self, 'text_bulletin'):
+                self.text_bulletin.config(state="normal")
+                self.text_bulletin.delete("1.0", tk.END)
+                self.text_bulletin.insert("1.0", new_text)
+                self.text_bulletin.config(state="disabled")
+                
+            self.show_toast_progress("✅ 全域公告已更新並發布！")
+            win.destroy()
+            
+        ttk.Button(win, text="💾 儲存並發布公告", command=save_bulletin, style="Success.TButton").pack(fill="x", padx=20, pady=(10, 20), ipady=5)
+
+    def open_tab_reorder_window(self):
+        win = tk.Toplevel(self.root); win.title("🔄 自訂分頁顯示順序")
+        self.center_toplevel_window(win, 350, 450)
+        tk.Label(win, text="使用上下按鈕調整全域分頁順序：", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#3498db").pack(pady=10)
+        
+        frame_list = tk.Frame(win, bg=COLOR_MAIN_BG)
+        frame_list.pack(fill="both", expand=True, padx=20, pady=5)
+        scrollbar = ttk.Scrollbar(frame_list)
+        scrollbar.pack(side="right", fill="y")
+        
+        listbox = tk.Listbox(frame_list, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", selectbackground="#e91e63", yscrollcommand=scrollbar.set, relief="solid")
+        for t in self.tab_order: listbox.insert(tk.END, t)
+        listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        def move(direction):
+            idx = listbox.curselection()
+            if not idx: return
+            idx = idx[0]
+            new_idx = idx + direction
+            if 0 <= new_idx < listbox.size():
+                val = listbox.get(idx)
+                listbox.delete(idx)
+                listbox.insert(new_idx, val)
+                listbox.selection_set(new_idx)
+                listbox.see(new_idx)
+                
+        btn_frame = tk.Frame(win, bg=COLOR_MAIN_BG)
+        btn_frame.pack(fill="x", padx=20, pady=10)
+        ttk.Button(btn_frame, text="⬆️ 上移", command=lambda: move(-1), style="Primary.TButton").pack(side="left", expand=True, fill="x", padx=(0,5), ipady=4)
+        ttk.Button(btn_frame, text="⬇️ 下移", command=lambda: move(1), style="Primary.TButton").pack(side="right", expand=True, fill="x", padx=(5,0), ipady=4)
+        
+        def save_order():
+            new_order = list(listbox.get(0, tk.END))
+            self.all_data["app_config"]["tab_order"] = new_order
+            self.tab_order = new_order
+            save_data(self.all_data)
+            
+            # 即時調整 UI 順序
+            for idx, t_name in enumerate(new_order):
+                if t_name in self.tab_widgets:
+                    self.notebook.insert(idx, self.tab_widgets[t_name])
+                    
+            self.show_toast_progress("✅ 分頁順序已套用更新")
+            win.destroy()
+            
+        ttk.Button(win, text="💾 儲存並即時重新排序", command=save_order, style="Success.TButton").pack(fill="x", padx=20, pady=(0, 20), ipady=5)
+
+    def open_master_account_manager(self):
+        win = tk.Toplevel(self.root); win.title("👥 全局玩家帳號管理 (上帝視角)")
+        self.center_toplevel_window(win, 450, 500)
+        tk.Label(win, text="系統內所有的玩家帳號與擁車數：", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#e74c3c").pack(pady=10)
+        
+        listbox = tk.Listbox(win, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", selectbackground="#c62828", relief="solid")
+        listbox.pack(fill="both", expand=True, padx=20, pady=5)
+        
+        def refresh_list():
+            listbox.delete(0, tk.END)
+            for p_name, p_data in self.all_data.get("profiles", {}).items():
+                c = len(p_data.get("vehicles", []))
+                listbox.insert(tk.END, f"{p_name}  (擁車數: {c})")
+        refresh_list()
+        
+        def delete_prof():
+            sel = listbox.curselection()
+            if not sel: return
+            p_name = listbox.get(sel[0]).split("  (")[0]
+            if messagebox.askyesno("強制刪除", f"確定要以管理員權限\n【徹底抹除玩家 {p_name}】的全部資料嗎？\n此動作無法復原！", parent=win):
+                del self.all_data["profiles"][p_name]
+                save_data(self.all_data)
+                refresh_list()
+                if self.current_id == p_name: 
+                    self.current_id = ""
+                    self.check_login_status()
+                self.update_profile_combo()
+                self.show_toast_progress(f"🗑️ 已強制抹除帳號：{p_name}")
+                
+        ttk.Button(win, text="🗑️ 強制刪除選定帳號", command=delete_prof, style="Danger.TButton").pack(fill="x", padx=20, pady=(10, 20), ipady=5)
+
+    def change_admin_password(self):
+        new_pwd = simpledialog.askstring("修改管理員密碼", "請設定新的最高權限密碼：\n(下次輸入 admin 登入時生效)", show="*")
+        if new_pwd:
+            self.all_data.setdefault("app_config", {})["admin_pwd"] = new_pwd
+            save_data(self.all_data)
+            self.show_toast_progress("✅ 管理員密碼已更新")
+
+    def logout_admin(self):
+        self.is_admin = False
+        self.menubar.entryconfig("👑 管理員 (Admin)", state="disabled")
+        self.show_toast_progress("🚪 管理員權限已鎖定")
+        self.set_status("💡 管理員已登出，系統恢復一般模式。", "#FF9800")
+
 
     # === 🏁 全新賽車碼錶與倒數計時雙引擎 ===
     def master_stopwatch_loop(self):
@@ -407,13 +649,13 @@ class GTAGarageApp:
         self.sw_mode = mode
         if hasattr(self, 'btn_mode_sw') and hasattr(self, 'btn_mode_cd'):
             if mode == "STOPWATCH":
-                self.btn_mode_sw.config(bg="#1565C0", fg="white")
-                self.btn_mode_cd.config(bg="#333333", fg="#cccccc")
+                self.btn_mode_sw.config(style="Primary.TButton")
+                self.btn_mode_cd.config(style="Dark.TButton")
                 if hasattr(self, 'frame_cd_opts') and self.frame_cd_opts.winfo_exists():
                     self.frame_cd_opts.pack_forget()
             else:
-                self.btn_mode_sw.config(bg="#333333", fg="#cccccc")
-                self.btn_mode_cd.config(bg="#1565C0", fg="white")
+                self.btn_mode_sw.config(style="Dark.TButton")
+                self.btn_mode_cd.config(style="Primary.TButton")
                 if hasattr(self, 'frame_cd_opts') and self.frame_cd_opts.winfo_exists():
                     self.frame_cd_opts.pack(after=self.frame_mode_btn, pady=4)
         self.action_reset()
@@ -422,13 +664,13 @@ class GTAGarageApp:
         if hasattr(self, 'btn_sw_action') and self.btn_sw_action.winfo_exists():
             state = getattr(self, 'sw_state', 'IDLE')
             if state == "READY":
-                self.btn_sw_action.config(text="等待 W 鍵起跑", bg="#F39C12") 
+                self.btn_sw_action.config(text="等待起跑按鍵", style="Warning.TButton") 
                 if hasattr(self, 'lbl_sw'): self.lbl_sw.config(fg="#F39C12")
             elif state == "RUNNING":
-                self.btn_sw_action.config(text="計時中 (Pause停)", bg="#e74c3c") 
+                self.btn_sw_action.config(text="計時中 (Pause停)", style="Danger.TButton") 
                 if hasattr(self, 'lbl_sw'): self.lbl_sw.config(fg="#4CAF50") 
             else:
-                self.btn_sw_action.config(text="Pause 準備", bg="#4CAF50") 
+                self.btn_sw_action.config(text="準備", style="Success.TButton") 
                 if hasattr(self, 'lbl_sw'): self.lbl_sw.config(fg="white")
 
     def toggle_stopwatch_window(self):
@@ -445,16 +687,10 @@ class GTAGarageApp:
             self.frame_mode_btn = tk.Frame(self.stopwatch_window, bg=COLOR_CARD_BG)
             self.frame_mode_btn.pack(pady=(8, 2))
             
-            self.btn_mode_sw = tk.Button(self.frame_mode_btn, text="⏱️ 正向計時", command=lambda: self.set_sw_mode("STOPWATCH"), 
-                                        bg="#1565C0" if self.sw_mode == "STOPWATCH" else "#333333", 
-                                        fg="white" if self.sw_mode == "STOPWATCH" else "#cccccc", 
-                                        font=FONT_BOLD, relief="flat", padx=8)
+            self.btn_mode_sw = ttk.Button(self.frame_mode_btn, text="⏱️ 正向計時", command=lambda: self.set_sw_mode("STOPWATCH"), style="Primary.TButton")
             self.btn_mode_sw.pack(side="left", padx=4)
             
-            self.btn_mode_cd = tk.Button(self.frame_mode_btn, text="⏳ 倒數計時", command=lambda: self.set_sw_mode("COUNTDOWN"), 
-                                        bg="#1565C0" if self.sw_mode == "COUNTDOWN" else "#333333", 
-                                        fg="white" if self.sw_mode == "COUNTDOWN" else "#cccccc", 
-                                        font=FONT_BOLD, relief="flat", padx=8)
+            self.btn_mode_cd = ttk.Button(self.frame_mode_btn, text="⏳ 倒數計時", command=lambda: self.set_sw_mode("COUNTDOWN"), style="Dark.TButton")
             self.btn_mode_cd.pack(side="left", padx=4)
 
             self.frame_cd_opts = tk.Frame(self.stopwatch_window, bg=COLOR_CARD_BG)
@@ -464,8 +700,7 @@ class GTAGarageApp:
             f_preset = tk.Frame(self.frame_cd_opts, bg=COLOR_CARD_BG)
             f_preset.pack()
             for label_t, sec_v in [("1分", 60), ("5分", 300), ("10分", 600), ("20分", 1200), ("48分", 2880)]:
-                tk.Button(f_preset, text=label_t, command=lambda s=sec_v: self.set_countdown_target(s), 
-                          bg="#424242", fg="white", font=("Microsoft JhengHei", 9, "bold"), relief="flat", padx=3).pack(side="left", padx=2)
+                ttk.Button(f_preset, text=label_t, command=lambda s=sec_v: self.set_countdown_target(s), style="Secondary.TButton").pack(side="left", padx=2)
 
             f_custom = tk.Frame(self.frame_cd_opts, bg=COLOR_CARD_BG)
             f_custom.pack(pady=(4, 0))
@@ -494,7 +729,7 @@ class GTAGarageApp:
                         self.set_countdown_target(total, close_window=True)
                 except: pass
 
-            tk.Button(f_custom, text="儲存並隱藏", command=apply_custom_cd, bg="#2196F3", fg="white", font=("Microsoft JhengHei", 9, "bold"), relief="flat", padx=3).pack(side="left", padx=2)
+            ttk.Button(f_custom, text="儲存並隱藏", command=apply_custom_cd, style="Primary.TButton").pack(side="left", padx=2)
             ent_custom_m.bind("<Return>", lambda e: ent_custom_s.focus())
             ent_custom_s.bind("<Return>", apply_custom_cd)
 
@@ -504,9 +739,9 @@ class GTAGarageApp:
             btn_f = tk.Frame(self.stopwatch_window, bg=COLOR_CARD_BG)
             btn_f.pack(pady=(0, 5))
             
-            self.btn_sw_action = tk.Button(btn_f, text="Pause 準備", command=self.action_pause_single, bg="#4CAF50", fg="white", font=FONT_BOLD, relief="flat", width=14)
+            self.btn_sw_action = ttk.Button(btn_f, text="準備", command=self.action_pause_single, style="Success.TButton")
             self.btn_sw_action.pack(side="left", padx=5)
-            tk.Button(btn_f, text="歸零", command=self.action_reset, bg="#e74c3c", fg="white", font=FONT_BOLD, relief="flat", width=6).pack(side="left", padx=5)
+            ttk.Button(btn_f, text="歸零", command=self.action_reset, style="Danger.TButton").pack(side="left", padx=5)
             
             self.update_stopwatch_ui_state()
             self.update_stopwatch_ui()
@@ -540,7 +775,7 @@ class GTAGarageApp:
                     latest_version = data.get("version", APP_VERSION)
                     
                     def parse_v(v_str):
-                        return [int(x) for x in str(v_str).replace("V", "").replace("v", "").split(".") if x.isdigit()]
+                        return [int(x) for x in str(v_str).replace("V", "").replace("v", "").replace("👑", "").replace("管理員上帝視角版", "").replace("介面淨化與上帝視角版", "").replace("現代化圓潤工具列版", "").replace("👁️ 欄位動態顯示版", "").replace("🧠 智能防呆跳轉版", "").replace("🆕 帕格薩斯解鎖與新車標記版", "").replace("📚 攻略圖鑑內建版", "").strip().split(".") if x.isdigit()]
                     
                     current_v = parse_v(APP_VERSION)
                     latest_v = parse_v(latest_version)
@@ -595,6 +830,30 @@ class GTAGarageApp:
             messagebox.showinfo("還原成功", "資料已成功從備份檔還原！\n系統已自動刷新所有畫面。")
         except Exception as e: messagebox.showerror("還原失敗", f"讀取或還原備份檔案時發生錯誤：\n\n{e}\n\n請確認該檔案是本系統產生之備份檔。")
 
+    def export_csv(self):
+        if not self.data or not self.data.get("vehicles"):
+            return messagebox.showinfo("匯出", "目前沒有車輛資料可供匯出。")
+            
+        default_name = f"GTA_Garage_Export_{self.current_id}_{int(time.time())}.csv"
+        file_path = filedialog.asksaveasfilename(title="匯出車輛清單為 CSV", initialfile=default_name, defaultextension=".csv", filetypes=[("CSV 檔案", "*.csv"), ("所有檔案", "*.*")])
+        if not file_path: return 
+        
+        try:
+            with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                writer.writerow(["車輛名稱", "存放位置", "類型", "取得方式", "改裝狀態", "數量", "備註", "登記日期", "最後修改"])
+                for car in self.data["vehicles"]:
+                    writer.writerow([
+                        car.get("name", ""), car.get("garage", ""), car.get("v_type", ""), 
+                        car.get("acquire", ""), car.get("upgraded", ""), car.get("count", 1), 
+                        car.get("notes", ""), car.get("created_at", ""), car.get("updated_at", "")
+                    ])
+            self.set_status(f"✅ CSV 報表已成功匯出至：{file_path}", color="#4CAF50")
+            self.show_toast_progress("📥 CSV 匯出成功！")
+            messagebox.showinfo("匯出成功", f"您的車庫資產已成功匯出至：\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("匯出錯誤", f"匯出 CSV 失敗：\n{e}")
+
     def show_about(self):
         messagebox.showinfo("關於", f"🚗 洛聖都資產管理系統\n當前版本：{APP_VERSION}\n\n為 GTA5 玩家打造的專業載具與車庫資產追蹤工具。")
 
@@ -605,7 +864,7 @@ class GTAGarageApp:
             
         win = tk.Toplevel(self.root)
         win.title("⚙️ 角色全域與版面設定")
-        self.center_toplevel_window(win, 520, 680)
+        self.center_toplevel_window(win, 520, 750)
         win.configure(bg=COLOR_CARD_BG)
         
         canvas = tk.Canvas(win, borderwidth=0, bg=COLOR_CARD_BG, highlightthickness=0)
@@ -641,7 +900,7 @@ class GTAGarageApp:
             ("tab_bulletin", "📢 系統公告分頁 (預設主頁)"), ("tab_vehicles", "🚗 車輛管理分頁"),
             ("tab_non_personal", "🚜 非個人與帕格薩斯分頁"), ("tab_special", "🚁 特殊載具分頁"),
             ("tab_garages", "🏠 車庫管理分頁"), ("tab_statistics", "📊 統計資料分頁"), 
-            ("tab_logs", "📜 操作日誌分頁"), ("tool_stopwatch", "⏱️ 任務碼錶 (Pause準備/W起跑/雙擊歸零)") 
+            ("tab_logs", "📜 操作日誌分頁"), ("tab_guides", "📚 攻略資料分頁"), ("tool_stopwatch", "⏱️ 任務碼錶功能") 
         ]
         
         frame_checks = tk.Frame(scrollable_frame, bg=COLOR_CARD_BG); frame_checks.pack(fill="x", padx=40)
@@ -721,9 +980,26 @@ class GTAGarageApp:
                 list_acq.delete(idx)
                 
         ent_new_acq.bind("<Return>", add_acq)
-        tk.Button(btn_f_acq, text="➕ 新增", command=add_acq, bg="#4CAF50", fg="white", font=FONT_BOLD, relief="flat").pack(side="left", padx=2, ipady=1)
-        tk.Button(btn_f_acq, text="🗑️ 刪除", command=del_acq, bg="#e74c3c", fg="white", font=FONT_BOLD, relief="flat").pack(side="left", padx=2, ipady=1)
+        ttk.Button(btn_f_acq, text="➕ 新增", command=add_acq, style="Success.TButton").pack(side="left", padx=2)
+        ttk.Button(btn_f_acq, text="🗑️ 刪除", command=del_acq, style="Danger.TButton").pack(side="left", padx=2)
             
+        # === 快捷鍵 UI 設定區塊 ===
+        ttk.Separator(scrollable_frame, orient="horizontal").pack(fill="x", pady=15, padx=20)
+        tk.Label(scrollable_frame, text="⌨️ 任務碼錶自訂快捷鍵", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#9b59b6").pack(pady=(5, 5))
+        
+        frame_hotkeys = tk.Frame(scrollable_frame, bg=COLOR_CARD_BG)
+        frame_hotkeys.pack(fill="x", padx=40, pady=5)
+        
+        tk.Label(frame_hotkeys, text="準備/暫停 (預設 pause):", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).grid(row=0, column=0, sticky="e", pady=8)
+        ent_hk_pause = tk.Entry(frame_hotkeys, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=10)
+        ent_hk_pause.insert(0, settings.get("hotkey_pause", "pause"))
+        ent_hk_pause.grid(row=0, column=1, padx=10, pady=8)
+        
+        tk.Label(frame_hotkeys, text="起跑/計時 (預設 w):", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).grid(row=1, column=0, sticky="e", pady=8)
+        ent_hk_start = tk.Entry(frame_hotkeys, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=10)
+        ent_hk_start.insert(0, settings.get("hotkey_start", "w"))
+        ent_hk_start.grid(row=1, column=1, padx=10, pady=8)
+
         def save_settings():
             for key, var in vars_dict.items(): self.data["app_settings"][key] = var.get()
             
@@ -735,6 +1011,10 @@ class GTAGarageApp:
             self.data["app_settings"]["disable_all_limits"] = var_limits.get()
             self.data["app_settings"]["default_garage_limit"] = new_g
             self.data["app_settings"]["default_special_limit"] = new_s
+            
+            # 儲存自訂快捷鍵
+            self.data["app_settings"]["hotkey_pause"] = ent_hk_pause.get().strip().lower() or "pause"
+            self.data["app_settings"]["hotkey_start"] = ent_hk_start.get().strip().lower() or "w"
             
             if var_overwrite.get():
                 spec_carriers = [sv["name"] for sv in self.data.get("special_vehicles", [])]
@@ -751,37 +1031,41 @@ class GTAGarageApp:
             self.show_toast_progress("⚙️ 設定已儲存套用")
             self.set_status("⚙️ 全域設定已更新，版面、容量規則與自訂選單已重新載入。", "#2196F3")
             
-        tk.Button(scrollable_frame, text="💾 儲存並套用設定", command=save_settings, bg="#2196F3", fg="white", font=FONT_BOLD, relief="flat").pack(fill="x", padx=40, pady=(20, 20), ipady=4)
+        ttk.Button(scrollable_frame, text="💾 儲存並套用設定", command=save_settings, style="Primary.TButton").pack(fill="x", padx=40, pady=(20, 20), ipady=4)
 
     def apply_settings(self):
         settings = self.data.get("app_settings", {}) if self.data else {"tool_stopwatch": True}
+        
+        pause_key = settings.get("hotkey_pause", "pause")
+        start_key = settings.get("hotkey_start", "w")
+
         if settings.get("tool_stopwatch", True):
             self.tools_menu.entryconfig("⏱️ 呼叫賽車與任務碼錶 (Pause準備/W計時/倒數)", state="normal")
             if HAS_KEYBOARD:
                 try: keyboard.unhook_all()
                 except: pass
                 try:
-                    keyboard.add_hotkey('pause', self.handle_pause_key)
-                    keyboard.add_hotkey('w', self.handle_w_key)
+                    keyboard.add_hotkey(pause_key, self.handle_pause_key)
+                    keyboard.add_hotkey(start_key, self.handle_w_key)
                 except Exception as e:
                     if not getattr(self, "keyboard_admin_warned", False):
-                        messagebox.showwarning("權限不足", "全域快捷鍵綁定失敗！\n請關閉程式後，【以系統管理員身分】重新執行 (或以系統管理員開啟 VSCode / CMD)。\n\n否則碼錶在遊戲背景時無法使用。")
+                        messagebox.showwarning("快捷鍵綁定錯誤", f"按鍵【{pause_key}】或【{start_key}】無效！\n或請關閉後【以系統管理員身分】重新執行程式。")
                         self.keyboard_admin_warned = True
             else:
-                self.root.bind_all("<Pause>", self.handle_pause_key)
-                self.root.bind_all("<w>", self.handle_w_key)
-                self.root.bind_all("<W>", self.handle_w_key)
+                self.root.bind_all(f"<{pause_key.capitalize()}>", self.handle_pause_key)
+                self.root.bind_all(f"<{start_key.lower()}>", self.handle_w_key)
+                self.root.bind_all(f"<{start_key.upper()}>", self.handle_w_key)
                 if not getattr(self, "keyboard_warned", False):
-                    messagebox.showinfo("💡 升級提示", "系統偵測到您尚未安裝全域快捷鍵模組。\n\n若您希望在 GTA5 遊戲全螢幕時，\n也能在背景按 Pause 鍵控制碼錶，\n請開啟 CMD 執行以下指令：\n\npip install keyboard")
+                    messagebox.showinfo("💡 升級提示", "系統偵測到您尚未安裝全域快捷鍵模組。\n\n若您希望在 GTA5 遊戲全螢幕時，\n也能在背景控制碼錶，\n請開啟 CMD 執行以下指令：\n\npip install keyboard")
                     self.keyboard_warned = True
         else:
             self.tools_menu.entryconfig("⏱️ 呼叫賽車與任務碼錶 (Pause準備/W計時/倒數)", state="disabled")
             if HAS_KEYBOARD:
                 try: keyboard.unhook_all()
                 except: pass
-            self.root.unbind_all("<Pause>")
-            self.root.unbind_all("<w>")
-            self.root.unbind_all("<W>")
+            self.root.unbind_all(f"<{pause_key.capitalize()}>")
+            self.root.unbind_all(f"<{start_key.lower()}>")
+            self.root.unbind_all(f"<{start_key.upper()}>")
             if self.stopwatch_window and self.stopwatch_window.winfo_exists():
                 self.stopwatch_window.destroy()
                 self.is_running = False
@@ -808,7 +1092,7 @@ class GTAGarageApp:
     def sort_treeview(self, tv, col, reverse):
         l = [(tv.set(k, col), k) for k in tv.get_children('')]
         try: l.sort(key=lambda t: float(t[0]), reverse=reverse)
-        except ValueError: l.sort(key=lambda t: t[0].replace("📌 ", "").replace("🔒 ", "").replace("☑ ", "").replace("☐ ", ""), reverse=reverse)
+        except ValueError: l.sort(key=lambda t: t[0].replace("📌 ", "").replace("🔒 ", "").replace("☑ ", "").replace("☐ ", "").replace("🆕 ", ""), reverse=reverse)
         for index, (val, k) in enumerate(l): tv.move(k, '', index)
         for c in tv["columns"]:
             clean_text = tv.heading(c)["text"].replace(" ▲", "").replace(" ▼", "")
@@ -847,15 +1131,29 @@ class GTAGarageApp:
     def setup_profile_bar(self):
         top_frame = tk.Frame(self.root, bg="#1a1a1a", pady=10); top_frame.pack(fill="x", side="top")
         tk.Label(top_frame, text="👤 選擇角色 ID:", bg="#1a1a1a", fg="white", font=FONT_BOLD).pack(side="left", padx=(15, 5))
-        self.combo_profile = ttk.Combobox(top_frame, state="readonly", width=15, font=FONT_NORMAL); self.combo_profile.pack(side="left", padx=5)
-        self.btn_login = tk.Button(top_frame, text="🔑 登入系統", command=self.login_profile, bg="#2e7d32", fg="white", font=FONT_BOLD, relief="flat", padx=8); self.btn_login.pack(side="left", padx=3)
-        self.btn_logout = tk.Button(top_frame, text="🚪 安全登出", command=self.logout_profile, bg="#ef6c00", fg="white", font=FONT_BOLD, relief="flat", padx=8); self.btn_logout.pack(side="left", padx=3)
-        self.btn_delete_profile = tk.Button(top_frame, text="🗑️ 刪除角色", command=self.delete_profile, bg="#c62828", fg="white", font=FONT_BOLD, relief="flat", padx=8); self.btn_delete_profile.pack(side="left", padx=15)
-        add_tooltip(self.btn_delete_profile, "刪除選取之角色ID，其資料庫將被永久抹除且無法復原！")
-        self.btn_create_profile = tk.Button(top_frame, text="➕ 新建 ID", command=self.create_profile, bg="#1565c0", fg="white", font=FONT_BOLD, relief="flat", padx=8); self.btn_create_profile.pack(side="right", padx=15)
+        self.combo_profile = ttk.Combobox(top_frame, width=15, font=FONT_NORMAL); self.combo_profile.pack(side="left", padx=5)
+        add_tooltip(self.combo_profile, "選擇帳號，或輸入 'admin' 呼叫管理員面板")
+        
+        self.btn_login = ttk.Button(top_frame, text="🔑 登入系統", command=self.login_profile, style="Success.TButton"); self.btn_login.pack(side="left", padx=3)
+        self.btn_logout = ttk.Button(top_frame, text="🚪 安全登出", command=self.logout_profile, style="Warning.TButton"); self.btn_logout.pack(side="left", padx=3)
         
         self.lbl_clock = tk.Label(top_frame, text="", bg="#1a1a1a", fg="#4CAF50", font=("Consolas", 13, "bold")); self.lbl_clock.pack(side="right", padx=20); self.update_clock() 
         self.update_profile_combo()
+        self.combo_profile.bind("<Return>", lambda e: self.login_profile())
+
+    def setup_global_toolbar(self):
+        # 建立全域批次工具列
+        self.toolbar_frame = tk.Frame(self.root, bg="#151515", pady=8)
+        self.toolbar_frame.pack(fill="x", side="top")
+
+        tk.Label(self.toolbar_frame, text="🛠️ 全域批次管理列：", bg="#151515", fg="#a8e6cf", font=FONT_BOLD).pack(side="left", padx=(15, 10))
+
+        self.btn_check_dup = ttk.Button(self.toolbar_frame, text="🔍 檢查重複車輛", command=self.check_duplicate_vehicles, style="Purple.TButton")
+        self.btn_check_dup.pack(side="left", padx=5)
+
+        self.btn_batch_edit_v = ttk.Button(self.toolbar_frame, text="✏️ 修改已勾選 (0)", command=self.edit_checked_vehicles, style="Warning.TButton")
+        self.btn_batch_edit_v.pack(side="left", padx=5)
+        self.btn_batch_edit_v.config(state="disabled")
 
     def update_clock(self):
         self.lbl_clock.config(text=f"🕒 {time.strftime('%Y-%m-%d  %H:%M:%S')}"); self.root.after(1000, self.update_clock)
@@ -880,8 +1178,15 @@ class GTAGarageApp:
         state_str = "normal" if is_logged_in else "disabled"
         
         self.btn_logout.config(state="normal" if is_logged_in else "disabled"); self.btn_login.config(state="disabled" if is_logged_in else "normal")
-        self.btn_delete_profile.config(state="disabled" if is_logged_in else "normal") 
         
+        if hasattr(self, 'account_menu'):
+            self.account_menu.entryconfig("🗑️ 刪除所選角色 (需先登出)", state="disabled" if is_logged_in else "normal")
+            
+        self.combo_profile.config(state="disabled" if is_logged_in else "normal")
+        
+        if hasattr(self, 'btn_check_dup'): self.btn_check_dup.config(state=state_str)
+        if hasattr(self, 'btn_batch_edit_v'): self.btn_batch_edit_v.config(state=state_str)
+
         if is_logged_in:
             self.data = self.all_data["profiles"][self.current_id]
             for key, default in [("vehicles", []), ("special_vehicles", []), ("garages", ["未分類", "日蝕大樓 1 號"]), ("action_logs", []), ("garage_categories", {}), ("acquire_options", ACQUIRE_OPTIONS.copy())]:
@@ -895,9 +1200,12 @@ class GTAGarageApp:
             defaults = {
                 "tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, 
                 "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, 
+                "tab_guides": True, # 🆕
                 "tool_stopwatch": True, "disable_all_limits": False,
                 "default_garage_limit": 10, "default_special_limit": 2,
-                "default_countdown_sec": 300.0 
+                "default_countdown_sec": 300.0,
+                "hotkey_pause": "pause", "hotkey_start": "w",
+                "visible_columns": ["check", "name", "garage", "vtype", "acquire", "upgrade", "count", "notes"]
             }
             for k, v in defaults.items():
                 if k not in self.data["app_settings"]: self.data["app_settings"][k] = v
@@ -927,16 +1235,24 @@ class GTAGarageApp:
             if not getattr(self, 'is_running', False) and getattr(self, 'sw_mode', 'STOPWATCH') == "COUNTDOWN":
                 self.elapsed_time = self.cd_target_sec
                 self.update_stopwatch_ui()
+                
+            # 套用顯示欄位設定
+            vis_cols = self.data["app_settings"].get("visible_columns", ["check", "name", "garage", "vtype", "acquire", "upgrade", "count", "notes"])
+            if hasattr(self, 'tree_vehicles') and self.tree_vehicles.winfo_exists():
+                self.tree_vehicles["displaycolumns"] = vis_cols
+            if hasattr(self, 'tree_non_personal') and self.tree_non_personal.winfo_exists():
+                self.tree_non_personal["displaycolumns"] = vis_cols
+                
         else: 
             self.current_id = ""; self.data = None
             if hasattr(self, 'text_logs'): self.text_logs.config(state="normal"); self.text_logs.delete("1.0", tk.END); self.text_logs.config(state="disabled")
 
-        settings = self.data.get("app_settings", {}) if self.data else {"tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True}
+        settings = self.data.get("app_settings", {}) if self.data else {"tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, "tab_guides": True}
 
         if not settings.get("tab_bulletin", True): self.notebook.tab(self.tab_bulletin, state="hidden")
         else: self.notebook.tab(self.tab_bulletin, state="normal")
 
-        for key, tab in [("tab_vehicles", self.tab_vehicles), ("tab_non_personal", self.tab_non_personal), ("tab_special", self.tab_special), ("tab_garages", self.tab_garages), ("tab_statistics", self.tab_statistics), ("tab_logs", self.tab_logs)]:
+        for key, tab in [("tab_vehicles", self.tab_vehicles), ("tab_non_personal", self.tab_non_personal), ("tab_special", self.tab_special), ("tab_garages", self.tab_garages), ("tab_statistics", self.tab_statistics), ("tab_logs", self.tab_logs), ("tab_guides", self.tab_guides)]:
             if not settings.get(key, True): self.notebook.tab(tab, state="hidden")
             else: self.notebook.tab(tab, state=state_str)
             
@@ -957,7 +1273,21 @@ class GTAGarageApp:
             self.combo_acquire["values"] = acq_opts
 
     def login_profile(self):
-        sel = self.combo_profile.get()
+        sel = self.combo_profile.get().strip()
+        
+        # 👑 管理員隱藏登入通道
+        if sel.lower() == "admin":
+            pwd = simpledialog.askstring("管理員登入", "請輸入系統最高權限密碼：", show="*")
+            if pwd == self.all_data.get("app_config", {}).get("admin_pwd", "admin888"):
+                self.is_admin = True
+                self.menubar.entryconfig("👑 管理員 (Admin)", state="normal")
+                self.show_toast_progress("👑 上帝視角已開啟")
+                self.set_status("👑 管理員身分核實完畢，所有最高權限功能已解鎖。", "#e91e63")
+                self.combo_profile.set("")
+            else:
+                messagebox.showerror("登入失敗", "安全警告：管理員密碼錯誤！")
+            return
+
         if sel and sel in self.all_data["profiles"]: 
             self.current_id = sel
             self.update_profile_combo() 
@@ -975,6 +1305,7 @@ class GTAGarageApp:
     def create_profile(self):
         name = simpledialog.askstring("新建 ID", "請輸入新的遊戲 ID / 角色名稱:")
         if not name: return
+        if name.lower() == "admin": return messagebox.showwarning("保留字警告", "⚠️ 「admin」為系統保留字，無法作為玩家 ID 註冊！")
         if name in self.all_data["profiles"]: return messagebox.showwarning("重複", "ID 已經存在！")
         init_log = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}]  🌟 建立角色 ID 檔案"
         
@@ -996,8 +1327,10 @@ class GTAGarageApp:
             "app_settings": {
                 "tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, 
                 "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, 
+                "tab_guides": True, # 🆕
                 "tool_stopwatch": True, "disable_all_limits": False,
-                "default_garage_limit": 10, "default_special_limit": 2
+                "default_garage_limit": 10, "default_special_limit": 2,
+                "visible_columns": ["check", "name", "garage", "vtype", "acquire", "upgrade", "count", "notes"]
             }
         }
         save_data(self.all_data); self.update_profile_combo(); self.combo_profile.set(name); messagebox.showinfo("建立成功", f"成功建立：{name}")
@@ -1044,7 +1377,7 @@ class GTAGarageApp:
     #     📢 0. 系統公告分頁
     # ==========================================
     def setup_bulletin_tab(self):
-        title_lbl = tk.Label(self.tab_bulletin, text="📢 洛聖都資產管理系統 - 系統公告與完整更新日誌", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#4CAF50")
+        title_lbl = tk.Label(self.tab_bulletin, text="📢 洛聖都資產管理系統 - 系統公告", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#4CAF50")
         title_lbl.pack(pady=(30, 15))
         
         text_frame = tk.Frame(self.tab_bulletin, bg=COLOR_MAIN_BG)
@@ -1053,52 +1386,120 @@ class GTAGarageApp:
         scrollbar = ttk.Scrollbar(text_frame)
         scrollbar.pack(side="right", fill="y")
         
-        text_area = tk.Text(text_frame, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, relief="solid", padx=20, pady=20, wrap="word", yscrollcommand=scrollbar.set)
-        text_area.pack(side="left", fill="both", expand=True)
-        scrollbar.config(command=text_area.yview)
+        self.text_bulletin = tk.Text(text_frame, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, relief="solid", padx=20, pady=20, wrap="word", yscrollcommand=scrollbar.set)
+        self.text_bulletin.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=self.text_bulletin.yview)
         
-        content = f"""【系統更新公告】
+        # 👑 從全域設定動態載入公告
+        content = self.all_data.get("app_config", {}).get("bulletin_text", "")
+        self.text_bulletin.insert("1.0", content)
+        self.text_bulletin.config(state="disabled")
 
-🌟 最新版本：V{APP_VERSION} 帕格薩斯絕對規則版
-📅 更新日期：2026-07-31
+    # ==========================================
+    #     📚 0.1. 攻略資料分頁 (Guides) 🆕
+    # ==========================================
+    def setup_guides_tab(self):
+        # 建立子分頁 (Sub-Notebook)
+        self.guides_notebook = ttk.Notebook(self.tab_guides)
+        self.guides_notebook.pack(fill="both", expand=True, padx=15, pady=10)
+        
+        self.tab_salvage = tk.Frame(self.guides_notebook, bg=COLOR_MAIN_BG)
+        self.tab_papertrail = tk.Frame(self.guides_notebook, bg=COLOR_MAIN_BG)
+        
+        self.guides_notebook.add(self.tab_salvage, text=" 🚗 廢車回收場盜竊任務 ")
+        self.guides_notebook.add(self.tab_papertrail, text=" 🚁 破壞行動探員 ")
 
-📝 本次版本修改與新增項目：
-1. [新增] 🚁 帕格薩斯全面支援與防呆限制：完美解決玩家管理帕格薩斯武裝載具的需求！現在只要將載具設為帕格薩斯，系統將嚴格套用三大規則：【數量強制鎖定1台】、【改裝狀態強制鎖為「不可改裝」】、【車庫與載具類型雙向綁定】，杜絕任何錯誤設定。
-2. [優化] 🧹 舊有資料自動清洗修復：登入角色時，系統會自動幫您檢查以前手動新增的帕格薩斯載具，並將舊的錯誤數量或改裝狀態全部自動修正為正確格式。
+        # --- 廢車回收場 UI ---
+        salvage_top = tk.Frame(self.tab_salvage, bg=COLOR_MAIN_BG)
+        salvage_top.pack(fill="both", expand=True, pady=(5,0))
+        
+        self.tree_salvage = ttk.Treeview(salvage_top, columns=("name", "reward", "date"), show="headings", height=6)
+        self.tree_salvage.heading("name", text="盜竊任務名稱")
+        self.tree_salvage.heading("reward", text="解鎖套裝 / 飾品")
+        self.tree_salvage.heading("date", text="推出日期")
+        self.tree_salvage.column("name", width=250, anchor="w")
+        self.tree_salvage.column("reward", width=250, anchor="center")
+        self.tree_salvage.column("date", width=100, anchor="center")
+        
+        vsb_s = ttk.Scrollbar(salvage_top, orient="vertical", command=self.tree_salvage.yview)
+        self.tree_salvage.configure(yscrollcommand=vsb_s.set)
+        vsb_s.pack(side="right", fill="y")
+        self.tree_salvage.pack(side="left", fill="both", expand=True)
 
---------------------------------------------------
-【歷史完整更新回顧】
+        tk.Label(self.tab_salvage, text="👇 點選上方任務檢視詳細攻略 👇", bg=COLOR_MAIN_BG, fg="#F39C12", font=FONT_BOLD).pack(pady=5)
+        
+        self.text_salvage = tk.Text(self.tab_salvage, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", wrap="word", relief="solid", height=10, padx=15, pady=15)
+        self.text_salvage.pack(fill="x", padx=5, pady=(0,5))
+        self.text_salvage.insert("1.0", "請從上方表格選擇一個任務。")
+        self.text_salvage.config(state="disabled")
 
-🔸 版本：V4.43.0 介面記憶儲存版
-- [新增] 💾 介面配置記憶引擎：系統會自動在關閉時記憶您當下的版面配置大小與全螢幕狀態，下次開啟直接完美還原！
+        # --- 破壞行動探員 UI ---
+        paper_top = tk.Frame(self.tab_papertrail, bg=COLOR_MAIN_BG)
+        paper_top.pack(fill="both", expand=True, pady=(5,0))
+        
+        self.tree_paper = ttk.Treeview(paper_top, columns=("name", "eval"), show="headings", height=5)
+        self.tree_paper.heading("name", text="檔案名稱")
+        self.tree_paper.heading("eval", text="評價")
+        self.tree_paper.column("name", width=150, anchor="w")
+        self.tree_paper.column("eval", width=300, anchor="w")
+        
+        vsb_p = ttk.Scrollbar(paper_top, orient="vertical", command=self.tree_paper.yview)
+        self.tree_paper.configure(yscrollcommand=vsb_p.set)
+        vsb_p.pack(side="right", fill="y")
+        self.tree_paper.pack(side="left", fill="both", expand=True)
 
-🔸 版本：V4.42.0 狀態列雷達版
-- [優化] 🌟 狀態列雷達顯示：將時間移出表格，保持畫面清爽。只要將滑鼠停在車輛上，下方狀態列就會浮現該車的「登記日期」與「最後修改時間」。
+        tk.Label(self.tab_papertrail, text="👇 點選上方檔案檢視挑戰條件 👇", bg=COLOR_MAIN_BG, fg="#F39C12", font=FONT_BOLD).pack(pady=5)
+        
+        self.text_paper = tk.Text(self.tab_papertrail, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", wrap="word", relief="solid", height=10, padx=15, pady=15)
+        self.text_paper.pack(fill="x", padx=5, pady=(0,5))
+        self.text_paper.insert("1.0", "請從上方表格選擇一個檔案。")
+        self.text_paper.config(state="disabled")
 
-🔸 版本：V4.41.0 完美響應式與雙時區版
-- [優化] 📐 彈性排版與 RWD：全面導入自適應網格 (Grid) 系統！視窗最大化時，所有的輸入框與表格都會完美地等比拉伸。
-- [新增] 🕒 登記日期與最後修改：不僅記錄修改時間，還額外新增了「登記日期」欄位。
+        # --- 資料庫建立 ---
+        self.salvage_db = [
+            ("杜根盜竊任務\n(花園銀行體育場)", "【偵察】花園銀行體育場\n●後方出口\n●後台入口\n●保全措施\n\n【計畫工作】\n●規避模組\n●貴賓證\n●擾亂護甲(非強制)\n\n【待辦事項】\n●洛聖都顛覆隊套裝\n●洛聖都顛覆隊拖車\n●面具(非強制)\n\n【精英挑戰】\n☑ 超過15次爆頭\n☑ 在首次嘗試中癱瘓目標載具\n☑ 一分鐘內抵達阿浩的所在位置", "洛聖都顛覆隊套裝 / 球衣", "2023/12/12"),
+            ("幫派份子盜竊任務\n(密申羅警察局)", "【偵察】密申羅警察局\n●警用小蠻牛\n●後方出口\n●通風裝置\n\n【計畫工作】\n●警用小蠻牛\n●戰術裝備\n●擾亂裝備(非強制)\n\n【待辦事項】\n●逃亡載具\n●電擊槍\n●藏匿的武器\n●面具(非強制)\n\n【精英挑戰】\n☑ 沒有失去警察生命數\n☑ 3分鐘內越獄\n☑ 太逆王剩餘75%生命值", "無 (執法人員套裝) / 警徽", "2023/12/12"),
+            ("貨船盜竊任務\n(大型貨櫃船拉霍柏公主號)", "【偵察】碼頭\n●貨櫃鎖\n●船運貨單\n●靠岸貨船\n\n【計畫工作】\n●破壞與偽裝\n●吊掛直升機\n●擾亂空中支援(非強制)\n\n【待辦事項】\n●信號彈\n●螺栓剪鉗\n●船\n●面具(非強制)\n\n【精英挑戰】\n☑ 沒有失去生命數\n☑ 抵達駕駛室而不被察覺\n☑ 吊掛直升機剩餘生命值超過80%", "海岸巡邏隊套裝、船長尖頂帽 / 船錨", "2023/12/12"),
+            ("展示台盜竊任務\n(鑽石賭場)", "【偵察】鑽石賭場\n●保全地道出口\n●垃圾處理廠\n●賭場內展示台\n\n【計畫工作】\n●洛聖都環保局偽裝\n●倉庫鑰匙卡\n●擾亂人員(非強制)\n\n【待辦事項】\n●垂降設備\n●防毒面具\n●破壞賭場\n●面具(非強制)\n\n【精英挑戰】\n☑ 沒有失去生命數\n☑ 在不被察覺情況下，抵達電梯閘門\n☑ 一分鐘內逃離賭場", "洛聖都環保局套裝 / 賭場籌碼", "2023/12/21"),
+            ("麥唐尼盜竊任務\n(潛水艇)", "【偵察】潛水艇\n●雷達干擾器\n●潛水艇藍圖\n●停機坪出口\n\n【計畫工作】\n●東尼的潛水器\n●聲納設備\n●擾亂武器(非強制)\n\n【待辦事項】\n●保全套裝\n●火焰割槍\n●面具(非強制)\n\n【精英挑戰】\n☑ 超過15次爆頭\n☑ 一分鐘內找到保全主管\n☑ 沒有失去生命數", "麥唐尼保全套裝 / 潛水艇", "2023/12/28")
+        ]
 
-🔸 版本：V4.39.0 系統純淨優化版
-- [優化] 🗑️ 徹底拔除 OCR 模組：果斷移除不穩定的 OCR 辨識引擎與龐大依賴庫，讓系統啟動極速、記憶體佔用極低！
+        self.paper_db = [
+            ("暴力破解", "A：5分鐘內抵達基地 (可以開自己載具過去，但會拉警報完成不了B挑戰)\nB：在不被發現的情況下進入區域A (長走廊後有堵門警衛的就是A區)\nC：用聖甲蟲擊毀5輛載具 (麻煩)", "非常糟糕\n流程很長"),
+            ("黑盒子", "A：摧毀全部4個飛機引擎 (有點距離打會比較快)\nB：取回所有飛機內容物 (額外戰利品有兩個箱子)\nC：在逃離時擊殺五個敵人 (死亡時會以自己騎小海鯊的狀態重生)", "Normal\n給喜歡開飛機跟下海的玩家"),
+            ("美術作品", "A：在不被發現情況下進入空中別墅 (進別墅層前潛行即可，可暗殺)\nB：在60秒內快速按下開關 (落地窗邊的小圓桌)\nC：拿走所有櫃子的內容物 (先拿兩旁櫃子的戰利品才拿中間的櫃子)", "EASY\n "),
+            ("斷點專案", "A：5分鐘內找到斷點專案 (透過手機APP掃描快速找到倉庫地點)\nB：達成15次爆頭 (倉庫內不夠人頭所以在倉庫外就要開始爆頭)\nC：取回帳本和伺服器模組(除了硬碟外要多拿兩堆推車上的戰利品)\n\n* 本來以為有更多專案，結果真的只有四個......", "EASY\n ")
+        ]
 
-🔸 版本：V4.38.1 權限除錯版
-- [修復] ⏱️ 碼錶快捷鍵警告機制：如果系統攔截了背景快捷鍵的權限，現在會彈出明確的錯誤警告，不再默默失效！
+        # 插入資料
+        for idx, (name, details, reward, date) in enumerate(self.salvage_db):
+            self.tree_salvage.insert("", "end", iid=str(idx), values=(name.replace('\n',' '), reward, date))
+            
+        for idx, (name, details, eval) in enumerate(self.paper_db):
+            self.tree_paper.insert("", "end", iid=str(idx), values=(name, eval.replace('\n',' ')))
 
-🔸 版本：V4.29.0 重複清理大師版
-- [新增] 🔍 車輛檢查按鈕與一鍵智能合併。
+        # 綁定點擊事件
+        def on_salvage_select(event):
+            sel = self.tree_salvage.selection()
+            if sel:
+                idx = int(sel[0])
+                self.text_salvage.config(state="normal")
+                self.text_salvage.delete("1.0", tk.END)
+                self.text_salvage.insert("1.0", f"【{self.salvage_db[idx][0].replace(chr(10),' ')}】\n\n{self.salvage_db[idx][1]}")
+                self.text_salvage.config(state="disabled")
+                
+        def on_paper_select(event):
+            sel = self.tree_paper.selection()
+            if sel:
+                idx = int(sel[0])
+                self.text_paper.config(state="normal")
+                self.text_paper.delete("1.0", tk.END)
+                self.text_paper.insert("1.0", f"【{self.paper_db[idx][0]}】\n\n挑戰條件：\n{self.paper_db[idx][1]}\n\n綜合評價：\n{self.paper_db[idx][2]}")
+                self.text_paper.config(state="disabled")
 
-🔸 版本：V4.28.2 智慧防重版
-- [新增] 攔截手動新增時的重複車輛。
+        self.tree_salvage.bind("<<TreeviewSelect>>", on_salvage_select)
+        self.tree_paper.bind("<<TreeviewSelect>>", on_paper_select)
 
-🔸 版本：V4.28.1 倒數精準記憶版
-- [新增] 儲存記憶與隱藏倒數計時設定。
-
-🔸 版本：V4.28.0 倒數計時功能版
-- [新增] ⏱️ 倒數計時器模式：支援「正向計時」與「倒數計時」雙模式切換！
-"""
-        text_area.insert("1.0", content)
-        text_area.config(state="disabled")
 
     # ==========================================
     #     📊 0.4. 統計資料分頁 (Statistics)
@@ -1246,7 +1647,7 @@ class GTAGarageApp:
     def setup_logs_tab(self):
         header_frame = tk.Frame(self.tab_logs, bg=COLOR_MAIN_BG); header_frame.pack(fill="x", padx=15, pady=15)
         tk.Label(header_frame, text="📜 帳號操作日誌 (最多保留最近 200 筆紀錄)", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#4CAF50").pack(side="left")
-        tk.Button(header_frame, text="🗑️ 清空歷史日誌", command=self.clear_logs, bg="#c62828", fg="white", font=FONT_BOLD, relief="flat", padx=8).pack(side="right")
+        ttk.Button(header_frame, text="🗑️ 清空歷史日誌", command=self.clear_logs, style="Danger.TButton").pack(side="right")
         self.text_logs = tk.Text(self.tab_logs, font=("Consolas", 11), bg=COLOR_CARD_BG, fg="#a8e6cf", relief="solid", padx=15, pady=15)
         vsb = ttk.Scrollbar(self.tab_logs, orient="vertical", command=self.text_logs.yview); self.text_logs.configure(yscrollcommand=vsb.set)
         vsb.pack(side="right", fill="y", pady=(0, 15), padx=(0, 15)); self.text_logs.pack(fill="both", expand=True, padx=(15, 0), pady=(0, 15)); self.text_logs.config(state="disabled")
@@ -1269,14 +1670,27 @@ class GTAGarageApp:
     def update_checked_button_text(self):
         count = len(self.checked_indices) if hasattr(self, 'checked_indices') else 0
         text = f"✏️ 修改已勾選 ({count})"
-        if hasattr(self, 'btn_batch_edit_v') and self.btn_batch_edit_v.winfo_exists(): self.btn_batch_edit_v.config(text=text)
-        if hasattr(self, 'btn_batch_edit_np') and self.btn_batch_edit_np.winfo_exists(): self.btn_batch_edit_np.config(text=text)
+        if hasattr(self, 'btn_batch_edit_v') and self.btn_batch_edit_v.winfo_exists(): 
+            self.btn_batch_edit_v.config(text=text)
 
     def on_tree_click(self, event):
         if not self.data: return
         tree = event.widget
         if tree.identify_region(event.x, event.y) != "cell": return
-        if tree.identify_column(event.x) == "#1": 
+        
+        # 動態防呆：取得實際被點擊的欄位代號，而非固定的 #1
+        col_str = tree.identify_column(event.x)
+        if not col_str: return
+        col_idx = int(col_str.replace("#", "")) - 1
+        
+        display_cols = tree.cget("displaycolumns")
+        if not display_cols or display_cols == "#all":
+            actual_col = tree.cget("columns")[col_idx]
+        else:
+            actual_col = display_cols[col_idx]
+            
+        # 若實際點擊到的是 "check" 欄位才進行勾選切換
+        if actual_col == "check": 
             item_iid = tree.identify_row(event.y)
             if not item_iid: return
             idx = int(item_iid)
@@ -1399,15 +1813,15 @@ class GTAGarageApp:
         btn_frame = tk.Frame(win, bg=COLOR_CARD_BG)
         btn_frame.pack(fill="x", padx=25, pady=15)
         
-        tk.Button(btn_frame, text="✨ 一鍵智能合併", command=do_auto_merge, bg="#2196F3", fg="white", font=FONT_BOLD, relief="flat").pack(side="left", expand=True, fill="x", padx=(0, 5), ipady=4)
-        tk.Button(btn_frame, text="關閉 (手動處理)", command=win.destroy, bg="#555555", fg="white", font=FONT_BOLD, relief="flat").pack(side="right", expand=True, fill="x", padx=(5, 0), ipady=4)
+        ttk.Button(btn_frame, text="✨ 一鍵智能合併", command=do_auto_merge, style="Primary.TButton").pack(side="left", expand=True, fill="x", padx=(0, 5), ipady=4)
+        ttk.Button(btn_frame, text="關閉 (手動處理)", command=win.destroy, style="Secondary.TButton").pack(side="right", expand=True, fill="x", padx=(5, 0), ipady=4)
 
     # ==========================================
     #     🚗 1. 車輛管理頁面 
     # ==========================================
     def setup_vehicles_tab(self):
         input_frame = tk.LabelFrame(self.tab_vehicles, text=" 📝 登記新載具資產 ", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#4CAF50", padx=12, pady=12, bd=2)
-        input_frame.pack(fill="x", padx=15, pady=10)
+        input_frame.pack(fill="x", padx=15, pady=(5, 10))
 
         for i in range(7): input_frame.columnconfigure(i, weight=0)
         input_frame.columnconfigure(1, weight=1)
@@ -1429,7 +1843,7 @@ class GTAGarageApp:
         self.combo_acquire.grid(row=0, column=5, sticky="we", padx=5, pady=5)
         self.combo_acquire.bind("<Return>", lambda e: self.add_vehicle()); self.combo_acquire.bind("<FocusIn>", lambda e: self.set_status("📍 當前游標位置：【取得方式】 (選完按 Enter 即可直接送出新增！)", "#00E676"), add="+")
 
-        tk.Button(input_frame, text="➕ 新增登記", command=self.add_vehicle, bg="#4CAF50", fg="white", font=FONT_BOLD, relief="flat", padx=20).grid(row=0, column=6, sticky="e", padx=(15, 5), pady=5)
+        ttk.Button(input_frame, text="➕ 新增登記", command=self.add_vehicle, style="Success.TButton", padding=(20, 4)).grid(row=0, column=6, sticky="e", padx=(15, 5), pady=5)
 
         action_frame = tk.Frame(self.tab_vehicles, bg=COLOR_MAIN_BG); action_frame.pack(fill="x", padx=15, pady=5)
         tk.Label(action_frame, text="🔍 全域搜尋:", bg=COLOR_MAIN_BG, fg="white", font=FONT_NORMAL).pack(side="left")
@@ -1438,14 +1852,10 @@ class GTAGarageApp:
         
         tk.Label(action_frame, text="  |  篩選車庫位置:", bg=COLOR_MAIN_BG, fg="white", font=FONT_NORMAL).pack(side="left", padx=5)
         self.combo_garage_filter = ttk.Combobox(action_frame, width=20, state="readonly", font=FONT_NORMAL); self.combo_garage_filter.pack(side="left", padx=5); self.combo_garage_filter.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
-        tk.Button(action_frame, text="重置", command=self.reset_filters, bg="#555555", fg="white", font=FONT_BOLD, relief="flat", padx=8).pack(side="left", padx=6)
-
-        btn_frame_chk = tk.Frame(action_frame, bg=COLOR_MAIN_BG); btn_frame_chk.pack(side="right")
-        self.btn_check_dup = tk.Button(btn_frame_chk, text="🔍 檢查重複", command=self.check_duplicate_vehicles, bg="#9b59b6", fg="white", font=FONT_BOLD, relief="flat", padx=6)
-        self.btn_check_dup.pack(side="left", padx=3)
+        ttk.Button(action_frame, text="重置", command=self.reset_filters, style="Secondary.TButton").pack(side="left", padx=6)
         
-        self.btn_batch_edit_v = tk.Button(btn_frame_chk, text="✏️ 修改已勾選 (0)", command=self.edit_checked_vehicles, bg="#F39C12", fg="white", font=FONT_BOLD, relief="flat", padx=6)
-        self.btn_batch_edit_v.pack(side="left", padx=3)
+        # 🆕 顯示/隱藏欄位按鈕
+        ttk.Button(action_frame, text="👁️ 欄位設定", command=self.open_column_selector, style="Dark.TButton").pack(side="left", padx=6)
 
         tree_frame = tk.Frame(self.tab_vehicles, bg=COLOR_MAIN_BG); tree_frame.pack(fill="both", expand=True, padx=15, pady=10)
         
@@ -1478,14 +1888,10 @@ class GTAGarageApp:
     def setup_non_personal_tab(self):
         header_frame = tk.Frame(self.tab_non_personal, bg=COLOR_MAIN_BG); header_frame.pack(fill="x", padx=15, pady=15)
         tk.Label(header_frame, text="🚜 非個人載具與帕格薩斯列表", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#FF9800").pack(side="left")
-        tk.Label(header_frame, text=" (請統一在「車輛管理」面板新增，系統會自動過濾至此區)", font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg=COLOR_TEXT_GRAY).pack(side="left")
+        tk.Label(header_frame, text=" (請統一在「車輛管理」面板新增)", font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg=COLOR_TEXT_GRAY).pack(side="left")
 
         btn_frame_np = tk.Frame(header_frame, bg=COLOR_MAIN_BG); btn_frame_np.pack(side="right")
-        self.btn_check_dup_np = tk.Button(btn_frame_np, text="🔍 檢查重複", command=self.check_duplicate_vehicles, bg="#9b59b6", fg="white", font=FONT_BOLD, relief="flat", padx=6)
-        self.btn_check_dup_np.pack(side="left", padx=3)
-        
-        self.btn_batch_edit_np = tk.Button(btn_frame_np, text="✏️ 修改已勾選 (0)", command=self.edit_checked_vehicles, bg="#F39C12", fg="white", font=FONT_BOLD, relief="flat", padx=6)
-        self.btn_batch_edit_np.pack(side="left", padx=3)
+        ttk.Button(btn_frame_np, text="👁️ 欄位設定", command=self.open_column_selector, style="Dark.TButton").pack(side="left", padx=3)
 
         tree_frame = tk.Frame(self.tab_non_personal, bg=COLOR_MAIN_BG); tree_frame.pack(fill="both", expand=True, padx=15, pady=5)
         self.tree_non_personal = ttk.Treeview(tree_frame, columns=("check", "name", "garage", "vtype", "acquire", "upgrade", "count", "notes"), show="headings", selectmode="extended")
@@ -1513,7 +1919,6 @@ class GTAGarageApp:
     def update_garage_comboboxes(self):
         if not self.data: return
         spec_carriers = [sv["name"] for sv in self.data.get("special_vehicles", []) if sv.get("can_store", False)]
-        # ✨ 將未分類和帕格薩斯永遠排最上面
         user_garages = [g for g in self.data["garages"] if g not in ["未分類", "帕格薩斯"]]
         combined_list = ["未分類", "帕格薩斯"] + user_garages + spec_carriers
         
@@ -1531,31 +1936,47 @@ class GTAGarageApp:
         return sum(c.get("count", 1) for c in self.data["vehicles"] if c["garage"] == garage_name)
 
     def refresh_vehicle_tables(self, search_results=None):
-        for i in self.tree_vehicles.get_children(): self.tree_vehicles.delete(i)
-        if hasattr(self, 'tree_non_personal'):
-            for i in self.tree_non_personal.get_children(): self.tree_non_personal.delete(i)
-            
         if not self.data: return
         data_to_sort = search_results if search_results is not None else enumerate(self.data["vehicles"])
-        pinned_items = []; normal_items = []
         
+        pinned_items = []; normal_items = []
         for idx, car in data_to_sort:
             if car.get("pinned", False): pinned_items.append((idx, car))
             else: normal_items.append((idx, car))
             
+        existing_main = set(self.tree_vehicles.get_children())
+        existing_np = set(self.tree_non_personal.get_children()) if hasattr(self, 'tree_non_personal') else set()
+        new_main = set(); new_np = set()
+        
+        today_str = time.strftime('%Y-%m-%d')
+            
         for idx, car in pinned_items + normal_items:
+            iid = str(idx)
             display_name = car["name"]
+            
+            # ✨ 新增本日新車 NEW 標籤
+            if car.get("created_at", "").startswith(today_str):
+                display_name = "🆕 " + display_name
+                
             if car.get("locked", False): display_name = "🔒 " + display_name
             if car.get("pinned", False): display_name = "📌 " + display_name
             
             check_symbol = "☑" if idx in getattr(self, 'checked_indices', set()) else "☐"
-            
             values = (check_symbol, display_name, car["garage"], car.get("v_type", ""), car.get("acquire", ""), car.get("upgraded", ""), car.get("count", 1), car.get("notes", ""))
             
-            if car.get("v_type", "") in ["非個人載具", "帕格薩斯"]:
-                if hasattr(self, 'tree_non_personal'): self.tree_non_personal.insert("", "end", iid=str(idx), values=values)
+            is_np = car.get("v_type", "") in ["非個人載具", "帕格薩斯"]
+            target_tree = self.tree_non_personal if is_np and hasattr(self, 'tree_non_personal') else self.tree_vehicles
+            target_set = new_np if is_np else new_main
+            
+            target_set.add(iid)
+            if iid in (existing_np if is_np else existing_main):
+                target_tree.item(iid, values=values)
             else:
-                self.tree_vehicles.insert("", "end", iid=str(idx), values=values)
+                target_tree.insert("", "end", iid=iid, values=values)
+                
+        for iid in existing_main - new_main: self.tree_vehicles.delete(iid)
+        if hasattr(self, 'tree_non_personal'):
+            for iid in existing_np - new_np: self.tree_non_personal.delete(iid)
 
     def add_vehicle(self):
         if not self.data: return
@@ -1571,7 +1992,6 @@ class GTAGarageApp:
         
         current_time = time.strftime('%Y-%m-%d %H:%M')
         
-        # ✨ 帕格薩斯強制屬性
         upgraded = ""
         count = 1
         if garage == "帕格薩斯":
@@ -1637,7 +2057,12 @@ class GTAGarageApp:
         self.set_status(f"✅ 新增成功：【{name}】已入庫。游標已自動回到【載具名稱】，可直接繼續打字！", "#4CAF50") 
         
         new_iid = str(len(self.data["vehicles"]) - 1)
-        target_tree = self.tree_non_personal if vtype in ["非個人載具", "帕格薩斯"] else self.tree_vehicles
+        target_tree = self.tree_non_personal if vtype in ["非個人載具", "帕格薩斯"] and hasattr(self, 'tree_non_personal') else self.tree_vehicles
+        
+        if target_tree == getattr(self, 'tree_non_personal', None) and self.notebook.select() != str(self.tab_non_personal):
+            self.notebook.select(self.tab_non_personal)
+            messagebox.showinfo("系統分流提示", f"【{name}】屬於特殊分類載具。\n系統已自動將其歸檔至「🚜 非個人與帕格薩斯」分頁！")
+
         if target_tree.exists(new_iid):
             target_tree.selection_set(new_iid); target_tree.focus(new_iid); target_tree.see(new_iid)            
         self.entry_name.focus()
@@ -1775,7 +2200,7 @@ class GTAGarageApp:
                 new_iid = str(len(self.data["vehicles"]) - 1)
                 if self.tree_vehicles.exists(new_iid): self.tree_vehicles.selection_set(new_iid); self.tree_vehicles.focus(new_iid); self.tree_vehicles.see(new_iid)
                     
-        tk.Button(win, text="確認執行批量登入", command=process_import, bg="#2196F3", fg="white", font=FONT_BOLD, relief="flat").pack(fill="x", padx=40, pady=15, ipady=4)
+        ttk.Button(win, text="確認執行批量登入", command=process_import, style="Primary.TButton").pack(fill="x", padx=40, pady=15, ipady=4)
 
     def open_edit_window(self, event=None, pre_selected=None):
         if not self.data: return
@@ -1829,11 +2254,21 @@ class GTAGarageApp:
             tk.Label(win, text="資產數量:", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(6,2)); ent_count.insert(0, str(car.get('count', 1))); ent_count.pack()
             tk.Label(win, text="自訂備註:", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(6,2)); ent_notes.insert(0, car.get('notes', '')); ent_notes.pack()
             
-            # ✨ 動態鎖定/解鎖機制
+            # ✨ 動態鎖定/解鎖機制：優化版，允許連動脫逃
             def on_edit_combobox_change(e=None):
+                if e:
+                    if e.widget == combo_edit_garage:
+                        if combo_edit_garage.get() == "帕格薩斯":
+                            combo_edit_vtype.set("帕格薩斯")
+                        elif combo_edit_vtype.get() == "帕格薩斯":
+                            combo_edit_vtype.set("非個人載具")
+                    elif e.widget == combo_edit_vtype:
+                        if combo_edit_vtype.get() == "帕格薩斯":
+                            combo_edit_garage.set("帕格薩斯")
+                        elif combo_edit_garage.get() == "帕格薩斯":
+                            combo_edit_garage.set("未分類")
+
                 if combo_edit_garage.get() == "帕格薩斯" or combo_edit_vtype.get() == "帕格薩斯":
-                    if combo_edit_garage.get() != "帕格薩斯": combo_edit_garage.set("帕格薩斯")
-                    if combo_edit_vtype.get() != "帕格薩斯": combo_edit_vtype.set("帕格薩斯")
                     combo_edit_upgrade.config(state="normal")
                     combo_edit_upgrade.set("不可改裝")
                     combo_edit_upgrade.config(state="disabled")
@@ -1873,6 +2308,14 @@ class GTAGarageApp:
                 
                 idx_str = str(idx)
                 final_tree = self.tree_non_personal if car['v_type'] in ["非個人載具", "帕格薩斯"] else self.tree_vehicles
+                
+                if final_tree == getattr(self, 'tree_non_personal', None) and self.notebook.select() != str(self.tab_non_personal):
+                    self.notebook.select(self.tab_non_personal)
+                    messagebox.showinfo("系統分流提示", f"【{new_car_name}】屬性變更！\n系統已自動將其移至「🚜 非個人與帕格薩斯」分頁！")
+                elif final_tree == self.tree_vehicles and self.notebook.select() != str(self.tab_vehicles):
+                    self.notebook.select(self.tab_vehicles)
+                    messagebox.showinfo("系統分流提示", f"【{new_car_name}】屬性變更！\n系統已自動將其移回「🚗 車輛管理」主分頁！")
+
                 if final_tree.exists(idx_str):
                     final_tree.selection_set(idx_str); final_tree.focus(idx_str); final_tree.see(idx_str)
 
@@ -1890,8 +2333,8 @@ class GTAGarageApp:
             
             btn_frame = tk.Frame(win, bg=COLOR_MAIN_BG)
             btn_frame.pack(fill="x", padx=35, pady=15)
-            tk.Button(btn_frame, text="儲存變更", command=save_single, bg="#4CAF50", fg="white", font=FONT_BOLD, relief="flat").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
-            tk.Button(btn_frame, text="🗑️ 刪除", command=delete_action, bg="#e74c3c", fg="white", font=FONT_BOLD, relief="flat").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
+            ttk.Button(btn_frame, text="儲存變更", command=save_single, style="Success.TButton").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
+            ttk.Button(btn_frame, text="🗑️ 刪除", command=delete_action, style="Danger.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
             
             ent_name.bind("<Return>", lambda e: combo_edit_garage.focus()); combo_edit_garage.bind("<Return>", lambda e: combo_edit_vtype.focus())
             combo_edit_vtype.bind("<Return>", lambda e: combo_edit_acquire.focus()); combo_edit_acquire.bind("<Return>", lambda e: combo_edit_upgrade.focus())
@@ -1937,18 +2380,31 @@ class GTAGarageApp:
                 for item in selected:
                     idx = int(item); car_name = self.data["vehicles"][idx]['name']
                     if up_g and new_g in SUB_CARRIER_RULES and not self.validate_tab1_vehicle_to_garage(car_name, new_g): return
+                    
                     if up_g: self.data["vehicles"][idx]['garage'] = new_g
                     if combo_batch_vtype.get() != "[不修改]": self.data["vehicles"][idx]['v_type'] = combo_batch_vtype.get()
+                    
+                    # ✨ 解除帕格薩斯鎖定陷阱：同步脫離
+                    if up_g and new_g == "帕格薩斯":
+                        self.data["vehicles"][idx]['v_type'] = "帕格薩斯"
+                    elif combo_batch_vtype.get() == "帕格薩斯":
+                        self.data["vehicles"][idx]['garage'] = "帕格薩斯"
+                        
+                    if up_g and new_g != "帕格薩斯" and self.data["vehicles"][idx]['v_type'] == "帕格薩斯":
+                        self.data["vehicles"][idx]['v_type'] = "非個人載具"
+                    if combo_batch_vtype.get() != "[不修改]" and combo_batch_vtype.get() != "帕格薩斯" and self.data["vehicles"][idx]['garage'] == "帕格薩斯":
+                        self.data["vehicles"][idx]['garage'] = "未分類"
+
                     if combo_batch_acq.get() != "[不修改]": self.data["vehicles"][idx]['acquire'] = combo_batch_acq.get()
-                    if combo_batch_upg.get() != "[不修改]": self.data["vehicles"][idx]['upgraded'] = combo_batch_upg.get()
+                    
                     if var_update_notes.get(): self.data["vehicles"][idx]['notes'] = ent_batch_notes.get()
                     
-                    # ✨ 批量處理時若觸發帕格薩斯，強制套用屬性
+                    # ✨ 帕格薩斯強制屬性
                     if self.data["vehicles"][idx]['garage'] == "帕格薩斯" or self.data["vehicles"][idx]['v_type'] == "帕格薩斯":
-                        self.data["vehicles"][idx]['garage'] = "帕格薩斯"
-                        self.data["vehicles"][idx]['v_type'] = "帕格薩斯"
                         self.data["vehicles"][idx]['upgraded'] = "不可改裝"
                         self.data["vehicles"][idx]['count'] = 1
+                    else:
+                        if combo_batch_upg.get() != "[不修改]": self.data["vehicles"][idx]['upgraded'] = combo_batch_upg.get()
                         
                     self.data["vehicles"][idx]['updated_at'] = current_time
                 
@@ -1960,6 +2416,15 @@ class GTAGarageApp:
 
                 self.refresh_vehicle_tables(); self.refresh_garage_table(); self.refresh_special_table(); win.destroy(); self.show_toast_progress("✅ 批量更新完畢")
                 self.set_status(f"✏️ 批量操作執行完畢：已變更 {len(selected)} 筆載具屬性。", "#2196F3")
+                
+                if up_g and new_g == "帕格薩斯" or combo_batch_vtype.get() in ["非個人載具", "帕格薩斯"]:
+                    if self.notebook.select() != str(self.tab_non_personal):
+                        self.notebook.select(self.tab_non_personal)
+                        messagebox.showinfo("系統分流提示", f"您批次修改的 {len(selected)} 筆載具已變更為特殊分類！\n系統已自動切換至「🚜 非個人與帕格薩斯」分頁。")
+                elif combo_batch_vtype.get() == "個人載具":
+                    if self.notebook.select() != str(self.tab_vehicles):
+                        self.notebook.select(self.tab_vehicles)
+                        messagebox.showinfo("系統分流提示", f"您批次修改的 {len(selected)} 筆載具已變更為個人載具！\n系統已自動切換至「🚗 車輛管理」分頁。")
                 
                 for item in selected:
                     final_t = self.tree_non_personal if self.data["vehicles"][int(item)].get("v_type") in ["非個人載具", "帕格薩斯"] else self.tree_vehicles
@@ -1982,8 +2447,8 @@ class GTAGarageApp:
             
             btn_frame = tk.Frame(win, bg=COLOR_MAIN_BG)
             btn_frame.pack(fill="x", padx=35, pady=15)
-            tk.Button(btn_frame, text="執行批量變更", command=save_batch, bg="#2196F3", fg="white", font=FONT_BOLD, relief="flat").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
-            tk.Button(btn_frame, text="🗑️ 批量刪除", command=delete_action, bg="#e74c3c", fg="white", font=FONT_BOLD, relief="flat").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
+            ttk.Button(btn_frame, text="執行批量變更", command=save_batch, style="Primary.TButton").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
+            ttk.Button(btn_frame, text="🗑️ 批量刪除", command=delete_action, style="Danger.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
             ent_batch_notes.bind("<Return>", save_batch)
 
     # ==========================================
@@ -2006,7 +2471,7 @@ class GTAGarageApp:
         self.combo_spec_location = ttk.Combobox(input_frame, state="readonly", font=FONT_NORMAL)
         self.combo_spec_location.grid(row=0, column=3, pady=5, padx=5, sticky="we")
 
-        tk.Button(input_frame, text="➕ 建立特殊載具", command=self.add_special, bg="#e91e63", fg="white", font=FONT_BOLD, relief="flat", padx=10).grid(row=0, column=4, rowspan=2, padx=15, pady=5, sticky="ns")
+        ttk.Button(input_frame, text="➕ 建立特殊載具", command=self.add_special, style="Pink.TButton", padding=(10, 4)).grid(row=0, column=4, rowspan=2, padx=15, pady=5, sticky="ns")
 
         self.var_can_store = tk.BooleanVar(value=False)
         self.chk_can_store = tk.Checkbutton(input_frame, text="啟用車庫(可放車)", variable=self.var_can_store, bg=COLOR_CARD_BG, fg="white", selectcolor="#757575", font=FONT_BOLD, activebackground=COLOR_CARD_BG, activeforeground="white")
@@ -2240,8 +2705,8 @@ class GTAGarageApp:
         
         btn_frame = tk.Frame(win, bg=COLOR_MAIN_BG)
         btn_frame.pack(fill="x", padx=35, pady=15)
-        tk.Button(btn_frame, text="保存變更", command=save, bg="#4CAF50", fg="white", font=FONT_BOLD, relief="flat").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
-        tk.Button(btn_frame, text="🗑️ 報廢刪除", command=delete_special_action, bg="#e74c3c", fg="white", font=FONT_BOLD, relief="flat").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
+        ttk.Button(btn_frame, text="保存變更", command=save, style="Success.TButton").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
+        ttk.Button(btn_frame, text="🗑️ 報廢刪除", command=delete_special_action, style="Danger.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
         
         combo_name.bind("<Return>", lambda e: combo_spec_loc.focus())
         combo_spec_loc.bind("<Return>", lambda e: ent_limit.focus())
@@ -2268,12 +2733,13 @@ class GTAGarageApp:
         self.entry_new_garage.bind("<Return>", lambda e: self.combo_new_garage_cat.focus())
         self.combo_new_garage_cat.bind("<Return>", lambda e: self.add_garage_simple())
         
-        self.btn_add_garage = tk.Button(left_frame, text="➕ 登記置產新車庫", command=self.add_garage_simple, bg="#4CAF50", fg="white", font=FONT_BOLD, relief="flat"); self.btn_add_garage.pack(fill="x", pady=15)
+        self.btn_add_garage = ttk.Button(left_frame, text="➕ 登記置產新車庫", command=self.add_garage_simple, style="Success.TButton")
+        self.btn_add_garage.pack(fill="x", pady=15)
         
         ttk.Separator(left_frame, orient="horizontal").pack(fill="x", pady=15)
         
         tk.Label(left_frame, text="↕️ 進階管理", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#F39C12").pack(pady=(5, 10))
-        self.btn_reorder_garage = tk.Button(left_frame, text="↕️ 自訂車庫順序", command=self.open_reorder_window, bg="#F39C12", fg="white", font=FONT_BOLD, relief="flat")
+        self.btn_reorder_garage = ttk.Button(left_frame, text="↕️ 自訂車庫順序", command=self.open_reorder_window, style="Warning.TButton")
         self.btn_reorder_garage.pack(fill="x", pady=5)
         
         self.right_frame = tk.Frame(self.tab_garages, bg=COLOR_MAIN_BG); self.right_frame.pack(side="right", fill="both", expand=True, padx=15, pady=10)
@@ -2350,8 +2816,8 @@ class GTAGarageApp:
         
         btn_frame = tk.Frame(win, bg=COLOR_CARD_BG)
         btn_frame.pack(fill="x", padx=20, pady=10)
-        tk.Button(btn_frame, text="⬆️ 上移", command=move_up, bg="#3498db", fg="white", font=FONT_BOLD, relief="flat").pack(side="left", expand=True, fill="x", padx=(0,5), ipady=4)
-        tk.Button(btn_frame, text="⬇️ 下移", command=move_down, bg="#3498db", fg="white", font=FONT_BOLD, relief="flat").pack(side="right", expand=True, fill="x", padx=(5,0), ipady=4)
+        ttk.Button(btn_frame, text="⬆️ 上移", command=move_up, style="Primary.TButton").pack(side="left", expand=True, fill="x", padx=(0,5), ipady=4)
+        ttk.Button(btn_frame, text="⬇️ 下移", command=move_down, style="Primary.TButton").pack(side="right", expand=True, fill="x", padx=(5,0), ipady=4)
         
         def save_order():
             new_order = list(listbox.get(0, tk.END))
@@ -2372,7 +2838,7 @@ class GTAGarageApp:
             self.show_toast_progress("✅ 車庫排序已更新！")
             self.set_status("🔄 房地產中心：已成功套用自訂車庫排序。", "#3498db")
             
-        tk.Button(win, text="💾 儲存並套用排序", command=save_order, bg="#4CAF50", fg="white", font=FONT_BOLD, relief="flat").pack(fill="x", padx=20, pady=(0, 20), ipady=4)
+        ttk.Button(win, text="💾 儲存並套用排序", command=save_order, style="Success.TButton").pack(fill="x", padx=20, pady=(0, 20), ipady=4)
 
     def add_garage_simple(self):
         if not self.data: return
@@ -2401,7 +2867,7 @@ class GTAGarageApp:
         actual_garages = [g for g in self.data["garages"] if g not in ["未分類", "帕格薩斯"]]
         
         if hasattr(self, 'btn_add_garage'):
-            self.btn_add_garage.config(state="normal", text=f"➕ 購入新物業車庫 ({len(actual_garages)})")
+            self.btn_add_garage.config(text=f"➕ 購入新物業車庫 ({len(actual_garages)})")
             
         grouped_garages = {}
         for g in actual_garages:
@@ -2430,8 +2896,8 @@ class GTAGarageApp:
                     tk.Label(row, text="⚠️ 爆滿危險", fg="#ff1744", font=FONT_BOLD, bg=COLOR_MAIN_BG).pack(side="left")
                     
                 btn_f = tk.Frame(row, bg=COLOR_MAIN_BG); btn_f.pack(side="right", padx=10)
-                tk.Button(btn_f, text="修改物業", command=lambda name=g: self.open_garage_edit_window_by_name(name), bg="#3498db", fg="white", font=FONT_NORMAL, relief="flat", padx=5).pack(side="left", padx=3)
-                tk.Button(btn_f, text="拆除物業", command=lambda name=g: self.delete_garage_by_name(name), bg="#e74c3c", fg="white", font=FONT_NORMAL, relief="flat", padx=5).pack(side="left", padx=3)
+                ttk.Button(btn_f, text="修改物業", command=lambda name=g: self.open_garage_edit_window_by_name(name), style="Primary.TButton").pack(side="left", padx=3)
+                ttk.Button(btn_f, text="拆除物業", command=lambda name=g: self.delete_garage_by_name(name), style="Danger.TButton").pack(side="left", padx=3)
 
     def delete_garage_by_name(self, g_name):
         if messagebox.askyesno("安全確認", f"您確定要拆除變賣車庫「{g_name}」嗎？\n(車庫內的車輛將自動撤回「未分類」車庫)"):
@@ -2525,8 +2991,8 @@ class GTAGarageApp:
             
         btn_frame = tk.Frame(win, bg=COLOR_MAIN_BG)
         btn_frame.pack(fill="x", padx=35, pady=15)
-        tk.Button(btn_frame, text="保存修改", command=save, bg="#4CAF50", fg="white", font=FONT_BOLD, relief="flat").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
-        tk.Button(btn_frame, text="🗑️ 拆除物業", command=delete_garage_action, bg="#e74c3c", fg="white", font=FONT_BOLD, relief="flat").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
+        ttk.Button(btn_frame, text="保存修改", command=save, style="Success.TButton").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
+        ttk.Button(btn_frame, text="🗑️ 拆除物業", command=delete_garage_action, style="Danger.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
         ent_name.bind("<Return>", lambda e: combo_cat.focus()); combo_cat.bind("<Return>", lambda e: ent_limit.focus()); ent_limit.bind("<Return>", save)
 
 if __name__ == "__main__":
