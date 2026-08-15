@@ -30,7 +30,7 @@ except ImportError:
     HAS_OCR = False
 
 # === 軟體版本與更新設定 ===
-APP_VERSION = "4.53.0 🚀 終極資產大亨版" 
+APP_VERSION = "4.54.0 🎲 每日專屬座駕版" 
 UPDATE_URL = "https://raw.githubusercontent.com/cvk82519-boop/GTA-Garage-App/refs/heads/main/version.json"
 DATA_FILE = "gta5_garage_data.json"
 
@@ -327,14 +327,12 @@ class GTAGarageApp:
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(self.all_data, f, ensure_ascii=False, indent=4)
             
-        # 🆕 自動備份機制 (守護神)
         if self.data and self.data.get("app_settings", {}).get("auto_backup", True):
             try:
                 backup_dir = "backups"
                 if not os.path.exists(backup_dir): os.makedirs(backup_dir)
                 bk_name = os.path.join(backup_dir, f"gta_auto_backup_{self.current_id}_{time.strftime('%Y%m%d_%H%M%S')}.json")
                 shutil.copy(DATA_FILE, bk_name)
-                # 自動清理舊備份，保留最近 5 份
                 files = sorted(glob.glob(os.path.join(backup_dir, f"gta_auto_backup_{self.current_id}_*.json")))
                 while len(files) > 5:
                     os.remove(files[0])
@@ -783,7 +781,7 @@ class GTAGarageApp:
                     latest_version = data.get("version", APP_VERSION)
                     
                     def parse_v(v_str):
-                        return [int(x) for x in str(v_str).replace("V", "").replace("v", "").replace("👑", "").replace("管理員上帝視角版", "").replace("介面淨化與上帝視角版", "").replace("現代化圓潤工具列版", "").replace("👁️ 欄位動態顯示版", "").replace("🧠 智能防呆跳轉版", "").replace("🆕 帕格薩斯解鎖與新車標記版", "").replace("📚 攻略圖鑑內建版", "").replace("🚀 終極資產大亨版", "").strip().split(".") if x.isdigit()]
+                        return [int(x) for x in str(v_str).replace("V", "").replace("v", "").replace("👑", "").replace("管理員上帝視角版", "").replace("介面淨化與上帝視角版", "").replace("現代化圓潤工具列版", "").replace("👁️ 欄位動態顯示版", "").replace("🧠 智能防呆跳轉版", "").replace("🆕 帕格薩斯解鎖與新車標記版", "").replace("📚 攻略圖鑑內建版", "").replace("🚀 終極資產大亨版", "").replace("🎲 每日專屬座駕版", "").strip().split(".") if x.isdigit()]
                     
                     current_v = parse_v(APP_VERSION)
                     latest_v = parse_v(latest_version)
@@ -1022,7 +1020,6 @@ class GTAGarageApp:
             self.data["app_settings"]["default_garage_limit"] = new_g
             self.data["app_settings"]["default_special_limit"] = new_s
             
-            # 儲存自訂快捷鍵
             self.data["app_settings"]["hotkey_pause"] = ent_hk_pause.get().strip().lower() or "pause"
             self.data["app_settings"]["hotkey_start"] = ent_hk_start.get().strip().lower() or "w"
             
@@ -1168,25 +1165,46 @@ class GTAGarageApp:
         self.btn_random_ride.pack(side="right", padx=15)
         self.btn_random_ride.config(state="disabled")
 
-    # === 🎲 隨機選車引擎 ===
+    # === 🎲 隨機選車引擎 (每日一車) ===
     def random_ride(self):
         if not self.data: return
         valid_cars = [c for c in self.data["vehicles"] if c.get("v_type") == "個人載具" and c.get("garage") not in ["帕格薩斯", "未分類"]]
         if not valid_cars:
             messagebox.showinfo("隨機選車", "你的車庫裡目前沒有可用的個人載具喔！\n請先新增幾台車輛並標記為「個人載具」。")
             return
-        car = random.choice(valid_cars)
+            
+        today_str = time.strftime('%Y-%m-%d')
+        app_settings = self.data.setdefault("app_settings", {})
         
+        saved_date = app_settings.get("daily_ride_date", "")
+        saved_car_name = app_settings.get("daily_ride_car", "")
+        
+        car = None
+        
+        # 如果今天是同一天，嘗試找出那台車
+        if saved_date == today_str and saved_car_name:
+            for c in valid_cars:
+                if c["name"] == saved_car_name:
+                    car = c
+                    break
+                    
+        # 如果跨日了，或是原本存的那台車被刪掉/改屬性了，就重新抽一台
+        if not car:
+            car = random.choice(valid_cars)
+            app_settings["daily_ride_date"] = today_str
+            app_settings["daily_ride_car"] = car["name"]
+            save_data(self.all_data) # 存檔記憶
+
         win = tk.Toplevel(self.root)
         win.title("🎲 今天開哪台？")
         self.center_toplevel_window(win, 350, 220)
         win.configure(bg=COLOR_CARD_BG)
         
-        tk.Label(win, text="🎯 系統為您隨機挑選了：", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#e91e63").pack(pady=(20, 10))
+        tk.Label(win, text="🎯 系統為您今日指定了：", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#e91e63").pack(pady=(20, 10))
         tk.Label(win, text=f"🚗 【 {car['name']} 】", font=("Microsoft JhengHei", 18, "bold"), bg=COLOR_CARD_BG, fg="white").pack()
         tk.Label(win, text=f"📍 停放於：{car['garage']}", font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="#3498db").pack(pady=10)
         
-        ttk.Button(win, text="太棒了，就決定是這台！", command=win.destroy, style="Success.TButton").pack(pady=10)
+        ttk.Button(win, text="太棒了，今天就開這台！", command=win.destroy, style="Success.TButton").pack(pady=10)
 
     def update_clock(self):
         self.lbl_clock.config(text=f"🕒 {time.strftime('%Y-%m-%d  %H:%M:%S')}"); self.root.after(1000, self.update_clock)
@@ -1442,9 +1460,9 @@ class GTAGarageApp:
 🌟 最新版本：{APP_VERSION}
 📅 更新日期：2026-08
 
-📝 本次重大更新回顧 (V4.53.0 ~ V4.47.0)：
-1. [新增] 💰 資產估算：載具新增「購入價格」欄位，統計資料分頁自動結算您的「車庫總資產估值」！
-2. [新增] 🎲 隨機選車：「今天開哪台？」智慧隨機抽車引擎，解決選擇障礙。
+📝 本次重大更新回顧 (V4.54.0 ~ V4.47.0)：
+1. [新增] 🎲 每日專屬座駕：「今天開哪台？」升級為每日隨機抽車，同一天內不會重複改變。
+2. [新增] 💰 資產估算：載具新增「購入價格」欄位，統計資料分頁自動結算您的「車庫總資產估值」！
 3. [新增] 🛒 願望清單：專屬「購車願望清單」分頁，買到後可一鍵轉入正式車庫。
 4. [新增] 🛡️ 自動備份：關閉程式時自動建立歷史備份檔 (保留最新 5 份)。
 5. [新增] 📚 內建攻略：加入「廢車回收場」與「破壞行動探員」詳細圖文攻略。
