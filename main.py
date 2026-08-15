@@ -9,6 +9,8 @@ import webbrowser
 import tkinter as tk
 import re
 import csv
+import random
+import glob
 from tkinter import messagebox, ttk, filedialog, simpledialog
 from collections import defaultdict
 
@@ -28,7 +30,7 @@ except ImportError:
     HAS_OCR = False
 
 # === 軟體版本與更新設定 ===
-APP_VERSION = "4.52.0 📚 攻略圖鑑內建版" 
+APP_VERSION = "4.53.0 🚀 終極資產大亨版" 
 UPDATE_URL = "https://raw.githubusercontent.com/cvk82519-boop/GTA-Garage-App/refs/heads/main/version.json"
 DATA_FILE = "gta5_garage_data.json"
 
@@ -129,6 +131,9 @@ def save_data(all_data):
         if "garage_categories" not in p_data:
             p_data["garage_categories"] = {}
         p_data["garage_categories"]["帕格薩斯"] = "虛擬服務"
+        
+        # 🆕 自動備份與願望清單初始化
+        if "wishlist" not in p_data: p_data["wishlist"] = []
             
         for g in p_data["garages"]:
             if g not in p_data["garage_categories"]:
@@ -149,12 +154,12 @@ def save_data(all_data):
         defaults = {
             "tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True,
             "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True,
-            "tab_guides": True, # 🆕 新增攻略分頁設定
-            "tool_stopwatch": True, "disable_all_limits": False,
+            "tab_guides": True, "tab_wishlist": True, # 🆕 願望清單
+            "tool_stopwatch": True, "disable_all_limits": False, "auto_backup": True, # 🆕 自動備份預設開啟
             "default_garage_limit": 10, "default_special_limit": 2,
             "default_countdown_sec": 300.0,
             "hotkey_pause": "pause", "hotkey_start": "w",
-            "visible_columns": ["check", "name", "garage", "vtype", "acquire", "upgrade", "count", "notes"]
+            "visible_columns": ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"] # 🆕 加入 price
         }
         for k, v in defaults.items():
             if k not in p_data["app_settings"]:
@@ -182,7 +187,6 @@ class GTAGarageApp:
         
         self.all_data = load_data()
         
-        # 👑 管理員與全域設定初始化
         self.is_admin = False
         app_config = self.all_data.setdefault("app_config", {})
         if "admin_pwd" not in app_config: app_config["admin_pwd"] = "admin888"
@@ -223,7 +227,6 @@ class GTAGarageApp:
                        fieldbackground=[('focus', COLOR_FOCUS_BG), ('readonly', COLOR_CARD_BG)], 
                        foreground=[('focus', 'white'), ('readonly', COLOR_TEXT_WHITE)])
                        
-        # === ✨ 統一扁平化/現代化按鈕 Style 設定 ===
         self.style.configure("TButton", font=FONT_BOLD, padding=6, relief="flat")
         btn_colors = {
             "Success": ("#4CAF50", "#45a049"),
@@ -237,9 +240,7 @@ class GTAGarageApp:
         }
         for name, (bg, active_bg) in btn_colors.items():
             self.style.configure(f"{name}.TButton", background=bg, foreground="white", bordercolor=bg, lightcolor=bg, darkcolor=bg)
-            self.style.map(f"{name}.TButton",
-                           background=[("active", active_bg), ("pressed", active_bg)],
-                           foreground=[("active", "white")])
+            self.style.map(f"{name}.TButton", background=[("active", active_bg), ("pressed", active_bg)], foreground=[("active", "white")])
         
         save_data(self.all_data) 
         
@@ -260,7 +261,6 @@ class GTAGarageApp:
         
         self.root.after(50, self.master_stopwatch_loop)
         
-        # === 確保先建立分頁字典 ===
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True, padx=8, pady=5)
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
@@ -270,9 +270,10 @@ class GTAGarageApp:
         self.tab_non_personal = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
         self.tab_special = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
         self.tab_garages = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
+        self.tab_wishlist = tk.Frame(self.notebook, bg=COLOR_MAIN_BG) # 🆕 願望清單
         self.tab_statistics = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
         self.tab_logs = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
-        self.tab_guides = tk.Frame(self.notebook, bg=COLOR_MAIN_BG) # 🆕 攻略分頁
+        self.tab_guides = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
 
         self.tab_widgets = {
             "📢 系統公告": self.tab_bulletin,
@@ -280,9 +281,10 @@ class GTAGarageApp:
             "🚜 非個人與帕格薩斯": self.tab_non_personal,
             "🚁 特殊載具": self.tab_special,
             "🏠 車庫管理": self.tab_garages,
+            "🛒 購車願望清單": self.tab_wishlist, # 🆕
             "📊 統計資料": self.tab_statistics,
             "📜 操作日誌": self.tab_logs,
-            "📚 攻略資料": self.tab_guides # 🆕
+            "📚 攻略資料": self.tab_guides
         }
         
         default_tab_order = list(self.tab_widgets.keys())
@@ -294,21 +296,20 @@ class GTAGarageApp:
             if t_name in self.tab_widgets:
                 self.notebook.add(self.tab_widgets[t_name], text=f" {t_name} ")
         
-        # === 初始化選單與全局控制區 ===
         self.setup_menu_bar()
         self.setup_profile_bar()
         self.setup_global_toolbar()
         self.setup_status_bar()
 
-        # === 建立分頁內容 ===
         self.setup_bulletin_tab()
         self.setup_vehicles_tab()
         self.setup_non_personal_tab()
         self.setup_special_tab()
         self.setup_garages_tab()
+        self.setup_wishlist_tab() # 🆕
         self.setup_statistics_tab() 
         self.setup_logs_tab()
-        self.setup_guides_tab() # 🆕
+        self.setup_guides_tab()
 
         self.apply_settings()
         self.check_login_status()
@@ -326,6 +327,21 @@ class GTAGarageApp:
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(self.all_data, f, ensure_ascii=False, indent=4)
             
+        # 🆕 自動備份機制 (守護神)
+        if self.data and self.data.get("app_settings", {}).get("auto_backup", True):
+            try:
+                backup_dir = "backups"
+                if not os.path.exists(backup_dir): os.makedirs(backup_dir)
+                bk_name = os.path.join(backup_dir, f"gta_auto_backup_{self.current_id}_{time.strftime('%Y%m%d_%H%M%S')}.json")
+                shutil.copy(DATA_FILE, bk_name)
+                # 自動清理舊備份，保留最近 5 份
+                files = sorted(glob.glob(os.path.join(backup_dir, f"gta_auto_backup_{self.current_id}_*.json")))
+                while len(files) > 5:
+                    os.remove(files[0])
+                    files.pop(0)
+            except Exception as e:
+                print(f"自動備份失敗: {e}")
+                
         self.root.destroy()
         sys.exit(0)
 
@@ -335,7 +351,6 @@ class GTAGarageApp:
     def setup_menu_bar(self):
         self.menubar = tk.Menu(self.root)
         
-        # 帳號管理專屬選單
         self.account_menu = tk.Menu(self.menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
         self.account_menu.add_command(label="➕ 新建角色 ID", command=self.create_profile)
         self.account_menu.add_command(label="🗑️ 刪除所選角色 (需先登出)", command=self.delete_profile)
@@ -367,7 +382,6 @@ class GTAGarageApp:
         about_menu.add_command(label="ℹ️ 關於本系統", command=self.show_about)
         self.menubar.add_cascade(label="關於 (A)", menu=about_menu)
 
-        # 👑 管理員選單 (預設隱藏/停用)
         self.admin_menu = tk.Menu(self.menubar, tearoff=0, bg="#e91e63", fg="white", font=FONT_BOLD)
         self.admin_menu.add_command(label="📝 編輯系統全域公告", command=self.open_bulletin_editor)
         self.admin_menu.add_command(label="🔄 動態分頁顯示順序", command=self.open_tab_reorder_window)
@@ -388,7 +402,7 @@ class GTAGarageApp:
             
         win = tk.Toplevel(self.root)
         win.title("👁️ 顯示/隱藏自訂欄位")
-        self.center_toplevel_window(win, 300, 420)
+        self.center_toplevel_window(win, 300, 450)
         win.configure(bg=COLOR_CARD_BG)
         
         tk.Label(win, text="請勾選您想在表格中顯示的欄位：", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#3498db").pack(pady=(15, 10))
@@ -399,6 +413,7 @@ class GTAGarageApp:
             "garage": "存放位置", 
             "vtype": "車輛類型", 
             "acquire": "取得方式", 
+            "price": "購入價格估值", # 🆕
             "upgrade": "改裝狀態", 
             "count": "資產數量", 
             "notes": "自訂備註"
@@ -425,7 +440,6 @@ class GTAGarageApp:
             self.data["app_settings"]["visible_columns"] = new_visible
             save_data(self.all_data)
             
-            # 即時套用至現有表格
             if hasattr(self, 'tree_vehicles') and self.tree_vehicles.winfo_exists():
                 self.tree_vehicles["displaycolumns"] = new_visible
             if hasattr(self, 'tree_non_personal') and self.tree_non_personal.winfo_exists():
@@ -500,7 +514,6 @@ class GTAGarageApp:
             self.tab_order = new_order
             save_data(self.all_data)
             
-            # 即時調整 UI 順序
             for idx, t_name in enumerate(new_order):
                 if t_name in self.tab_widgets:
                     self.notebook.insert(idx, self.tab_widgets[t_name])
@@ -775,7 +788,7 @@ class GTAGarageApp:
                     latest_version = data.get("version", APP_VERSION)
                     
                     def parse_v(v_str):
-                        return [int(x) for x in str(v_str).replace("V", "").replace("v", "").replace("👑", "").replace("管理員上帝視角版", "").replace("介面淨化與上帝視角版", "").replace("現代化圓潤工具列版", "").replace("👁️ 欄位動態顯示版", "").replace("🧠 智能防呆跳轉版", "").replace("🆕 帕格薩斯解鎖與新車標記版", "").replace("📚 攻略圖鑑內建版", "").strip().split(".") if x.isdigit()]
+                        return [int(x) for x in str(v_str).replace("V", "").replace("v", "").replace("👑", "").replace("管理員上帝視角版", "").replace("介面淨化與上帝視角版", "").replace("現代化圓潤工具列版", "").replace("👁️ 欄位動態顯示版", "").replace("🧠 智能防呆跳轉版", "").replace("🆕 帕格薩斯解鎖與新車標記版", "").replace("📚 攻略圖鑑內建版", "").replace("🚀 終極資產大亨版", "").strip().split(".") if x.isdigit()]
                     
                     current_v = parse_v(APP_VERSION)
                     latest_v = parse_v(latest_version)
@@ -841,11 +854,11 @@ class GTAGarageApp:
         try:
             with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.writer(f)
-                writer.writerow(["車輛名稱", "存放位置", "類型", "取得方式", "改裝狀態", "數量", "備註", "登記日期", "最後修改"])
+                writer.writerow(["車輛名稱", "存放位置", "類型", "取得方式", "購入價格(估值)", "改裝狀態", "數量", "備註", "登記日期", "最後修改"])
                 for car in self.data["vehicles"]:
                     writer.writerow([
                         car.get("name", ""), car.get("garage", ""), car.get("v_type", ""), 
-                        car.get("acquire", ""), car.get("upgraded", ""), car.get("count", 1), 
+                        car.get("acquire", ""), car.get("price", 0), car.get("upgraded", ""), car.get("count", 1), 
                         car.get("notes", ""), car.get("created_at", ""), car.get("updated_at", "")
                     ])
             self.set_status(f"✅ CSV 報表已成功匯出至：{file_path}", color="#4CAF50")
@@ -899,8 +912,10 @@ class GTAGarageApp:
         features = [
             ("tab_bulletin", "📢 系統公告分頁 (預設主頁)"), ("tab_vehicles", "🚗 車輛管理分頁"),
             ("tab_non_personal", "🚜 非個人與帕格薩斯分頁"), ("tab_special", "🚁 特殊載具分頁"),
-            ("tab_garages", "🏠 車庫管理分頁"), ("tab_statistics", "📊 統計資料分頁"), 
-            ("tab_logs", "📜 操作日誌分頁"), ("tab_guides", "📚 攻略資料分頁"), ("tool_stopwatch", "⏱️ 任務碼錶功能") 
+            ("tab_garages", "🏠 車庫管理分頁"), ("tab_wishlist", "🛒 購車願望清單分頁"), 
+            ("tab_statistics", "📊 統計資料分頁"), ("tab_logs", "📜 操作日誌分頁"), 
+            ("tab_guides", "📚 攻略資料分頁"), ("tool_stopwatch", "⏱️ 任務碼錶功能"),
+            ("auto_backup", "🛡️ 退出時自動備份資料庫") 
         ]
         
         frame_checks = tk.Frame(scrollable_frame, bg=COLOR_CARD_BG); frame_checks.pack(fill="x", padx=40)
@@ -1012,7 +1027,6 @@ class GTAGarageApp:
             self.data["app_settings"]["default_garage_limit"] = new_g
             self.data["app_settings"]["default_special_limit"] = new_s
             
-            # 儲存自訂快捷鍵
             self.data["app_settings"]["hotkey_pause"] = ent_hk_pause.get().strip().lower() or "pause"
             self.data["app_settings"]["hotkey_start"] = ent_hk_start.get().strip().lower() or "w"
             
@@ -1142,7 +1156,6 @@ class GTAGarageApp:
         self.combo_profile.bind("<Return>", lambda e: self.login_profile())
 
     def setup_global_toolbar(self):
-        # 建立全域批次工具列
         self.toolbar_frame = tk.Frame(self.root, bg="#151515", pady=8)
         self.toolbar_frame.pack(fill="x", side="top")
 
@@ -1154,6 +1167,32 @@ class GTAGarageApp:
         self.btn_batch_edit_v = ttk.Button(self.toolbar_frame, text="✏️ 修改已勾選 (0)", command=self.edit_checked_vehicles, style="Warning.TButton")
         self.btn_batch_edit_v.pack(side="left", padx=5)
         self.btn_batch_edit_v.config(state="disabled")
+        
+        # 🆕 隨機選車按鈕
+        self.btn_random_ride = ttk.Button(self.toolbar_frame, text="🎲 今天開哪台？", command=self.random_ride, style="Pink.TButton")
+        self.btn_random_ride.pack(side="right", padx=15)
+        self.btn_random_ride.config(state="disabled")
+
+    # === 🎲 隨機選車引擎 ===
+    def random_ride(self):
+        if not self.data: return
+        valid_cars = [c for c in self.data["vehicles"] if c.get("v_type") == "個人載具" and c.get("garage") not in ["帕格薩斯", "未分類"]]
+        if not valid_cars:
+            messagebox.showinfo("隨機選車", "你的車庫裡目前沒有可用的個人載具喔！\n請先新增幾台車輛並標記為「個人載具」。")
+            return
+        car = random.choice(valid_cars)
+        
+        # 建立專屬彈出視窗
+        win = tk.Toplevel(self.root)
+        win.title("🎲 今天開哪台？")
+        self.center_toplevel_window(win, 350, 220)
+        win.configure(bg=COLOR_CARD_BG)
+        
+        tk.Label(win, text="🎯 系統為您隨機挑選了：", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#e91e63").pack(pady=(20, 10))
+        tk.Label(win, text=f"🚗 【 {car['name']} 】", font=("Microsoft JhengHei", 18, "bold"), bg=COLOR_CARD_BG, fg="white").pack()
+        tk.Label(win, text=f"📍 停放於：{car['garage']}", font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="#3498db").pack(pady=10)
+        
+        ttk.Button(win, text="太棒了，就決定是這台！", command=win.destroy, style="Success.TButton").pack(pady=10)
 
     def update_clock(self):
         self.lbl_clock.config(text=f"🕒 {time.strftime('%Y-%m-%d  %H:%M:%S')}"); self.root.after(1000, self.update_clock)
@@ -1186,10 +1225,11 @@ class GTAGarageApp:
         
         if hasattr(self, 'btn_check_dup'): self.btn_check_dup.config(state=state_str)
         if hasattr(self, 'btn_batch_edit_v'): self.btn_batch_edit_v.config(state=state_str)
+        if hasattr(self, 'btn_random_ride'): self.btn_random_ride.config(state=state_str)
 
         if is_logged_in:
             self.data = self.all_data["profiles"][self.current_id]
-            for key, default in [("vehicles", []), ("special_vehicles", []), ("garages", ["未分類", "日蝕大樓 1 號"]), ("action_logs", []), ("garage_categories", {}), ("acquire_options", ACQUIRE_OPTIONS.copy())]:
+            for key, default in [("vehicles", []), ("special_vehicles", []), ("garages", ["未分類", "日蝕大樓 1 號"]), ("action_logs", []), ("garage_categories", {}), ("acquire_options", ACQUIRE_OPTIONS.copy()), ("wishlist", [])]:
                 if key not in self.data: self.data[key] = default
             if "garage_limits" not in self.data:
                 self.data["garage_limits"] = {"未分類": 999}; 
@@ -1200,12 +1240,12 @@ class GTAGarageApp:
             defaults = {
                 "tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, 
                 "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, 
-                "tab_guides": True, # 🆕
-                "tool_stopwatch": True, "disable_all_limits": False,
+                "tab_guides": True, "tab_wishlist": True,
+                "tool_stopwatch": True, "disable_all_limits": False, "auto_backup": True,
                 "default_garage_limit": 10, "default_special_limit": 2,
                 "default_countdown_sec": 300.0,
                 "hotkey_pause": "pause", "hotkey_start": "w",
-                "visible_columns": ["check", "name", "garage", "vtype", "acquire", "upgrade", "count", "notes"]
+                "visible_columns": ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"]
             }
             for k, v in defaults.items():
                 if k not in self.data["app_settings"]: self.data["app_settings"][k] = v
@@ -1237,7 +1277,7 @@ class GTAGarageApp:
                 self.update_stopwatch_ui()
                 
             # 套用顯示欄位設定
-            vis_cols = self.data["app_settings"].get("visible_columns", ["check", "name", "garage", "vtype", "acquire", "upgrade", "count", "notes"])
+            vis_cols = self.data["app_settings"].get("visible_columns", ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"])
             if hasattr(self, 'tree_vehicles') and self.tree_vehicles.winfo_exists():
                 self.tree_vehicles["displaycolumns"] = vis_cols
             if hasattr(self, 'tree_non_personal') and self.tree_non_personal.winfo_exists():
@@ -1247,18 +1287,19 @@ class GTAGarageApp:
             self.current_id = ""; self.data = None
             if hasattr(self, 'text_logs'): self.text_logs.config(state="normal"); self.text_logs.delete("1.0", tk.END); self.text_logs.config(state="disabled")
 
-        settings = self.data.get("app_settings", {}) if self.data else {"tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, "tab_guides": True}
+        settings = self.data.get("app_settings", {}) if self.data else {"tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, "tab_guides": True, "tab_wishlist": True}
 
         if not settings.get("tab_bulletin", True): self.notebook.tab(self.tab_bulletin, state="hidden")
         else: self.notebook.tab(self.tab_bulletin, state="normal")
 
-        for key, tab in [("tab_vehicles", self.tab_vehicles), ("tab_non_personal", self.tab_non_personal), ("tab_special", self.tab_special), ("tab_garages", self.tab_garages), ("tab_statistics", self.tab_statistics), ("tab_logs", self.tab_logs), ("tab_guides", self.tab_guides)]:
+        for key, tab in [("tab_vehicles", self.tab_vehicles), ("tab_non_personal", self.tab_non_personal), ("tab_special", self.tab_special), ("tab_garages", self.tab_garages), ("tab_wishlist", self.tab_wishlist), ("tab_statistics", self.tab_statistics), ("tab_logs", self.tab_logs), ("tab_guides", self.tab_guides)]:
             if not settings.get(key, True): self.notebook.tab(tab, state="hidden")
             else: self.notebook.tab(tab, state=state_str)
             
         self.update_garage_comboboxes(); self.update_acquire_comboboxes(); self.refresh_vehicle_tables(); self.refresh_special_table(); self.refresh_garage_table(); self.apply_settings()
         if is_logged_in: 
             self.refresh_logs_display()
+            self.refresh_wishlist_table()
             self.update_checked_button_text()
             
             sel_id = self.notebook.select()
@@ -1323,14 +1364,14 @@ class GTAGarageApp:
         self.all_data["profiles"][name] = {
             "vehicles": [], "special_vehicles": [], "garages": default_garages, 
             "garage_limits": default_limits, "garage_categories": default_categories, "action_logs": [init_log],
-            "acquire_options": ACQUIRE_OPTIONS.copy(),
+            "acquire_options": ACQUIRE_OPTIONS.copy(), "wishlist": [],
             "app_settings": {
                 "tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, 
                 "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, 
-                "tab_guides": True, # 🆕
-                "tool_stopwatch": True, "disable_all_limits": False,
+                "tab_guides": True, "tab_wishlist": True,
+                "tool_stopwatch": True, "disable_all_limits": False, "auto_backup": True,
                 "default_garage_limit": 10, "default_special_limit": 2,
-                "visible_columns": ["check", "name", "garage", "vtype", "acquire", "upgrade", "count", "notes"]
+                "visible_columns": ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"]
             }
         }
         save_data(self.all_data); self.update_profile_combo(); self.combo_profile.set(name); messagebox.showinfo("建立成功", f"成功建立：{name}")
@@ -1396,7 +1437,7 @@ class GTAGarageApp:
         self.text_bulletin.config(state="disabled")
 
     # ==========================================
-    #     📚 0.1. 攻略資料分頁 (Guides) 🆕
+    #     📚 0.1. 攻略資料分頁 (Guides)
     # ==========================================
     def setup_guides_tab(self):
         # 建立子分頁 (Sub-Notebook)
@@ -1471,14 +1512,12 @@ class GTAGarageApp:
             ("斷點專案", "A：5分鐘內找到斷點專案 (透過手機APP掃描快速找到倉庫地點)\nB：達成15次爆頭 (倉庫內不夠人頭所以在倉庫外就要開始爆頭)\nC：取回帳本和伺服器模組(除了硬碟外要多拿兩堆推車上的戰利品)\n\n* 本來以為有更多專案，結果真的只有四個......", "EASY\n ")
         ]
 
-        # 插入資料
         for idx, (name, details, reward, date) in enumerate(self.salvage_db):
             self.tree_salvage.insert("", "end", iid=str(idx), values=(name.replace('\n',' '), reward, date))
             
         for idx, (name, details, eval) in enumerate(self.paper_db):
             self.tree_paper.insert("", "end", iid=str(idx), values=(name, eval.replace('\n',' ')))
 
-        # 綁定點擊事件
         def on_salvage_select(event):
             sel = self.tree_salvage.selection()
             if sel:
@@ -1544,9 +1583,15 @@ class GTAGarageApp:
         type_counts = {"個人載具": 0, "非個人載具": 0, "帕格薩斯": 0, "未設定": 0}
         upg_counts = {"已改滿": 0, "未改滿": 0, "不可改裝": 0, "未設定": 0}
         acq_counts = {}
+        total_value = 0 # 🆕
 
         for v in vehicles:
             c = v.get("count", 1)
+            try: p = int(v.get("price", 0))
+            except: p = 0
+            
+            total_value += (p * c) # 🆕 計算總資產
+            
             vt = v.get("v_type", "")
             if not vt: vt = "未設定"
             if vt in type_counts: type_counts[vt] += c
@@ -1588,8 +1633,8 @@ class GTAGarageApp:
             tk.Label(f, text=str(value), font=("Consolas", 24, "bold"), bg=COLOR_CARD_BG, fg=color).pack(pady=(10, 0))
         
         create_stat_card(row1, "🚗 總擁有載具數量", total_cars, "#3498db")
+        create_stat_card(row1, "💎 車庫總資產估值", f"$ {total_value:,}", "#9b59b6") # 🆕 顯示總資產
         create_stat_card(row1, "🏠 總持有車庫物業", total_garages, "#4CAF50")
-        create_stat_card(row1, "🚁 總特種設備數量", total_specials, "#e91e63")
         
         capacity_text = f"{total_used_in_capacity} / ∞" if disable_limits else f"{total_used_in_capacity} / {total_capacity}"
         create_stat_card(row1, "🅿️ 總車位使用率", capacity_text, "#F39C12")
@@ -1597,7 +1642,6 @@ class GTAGarageApp:
         row2 = tk.Frame(self.stats_frame, bg=COLOR_MAIN_BG)
         row2.pack(fill="x", pady=15)
         
-        # 📐 重寫為支援動態數量的長條圖表函數
         def create_bar_stat(parent, title, items):
             f = tk.LabelFrame(parent, text=f" {title} ", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="white", bd=2, padx=20, pady=20)
             f.pack(side="left", fill="both", expand=True, padx=10)
@@ -1664,6 +1708,127 @@ class GTAGarageApp:
         if messagebox.askyesno("危險操作", "確定要清空此角色的所有操作日誌嗎？\n清空後將無法復原。"):
             self.data["action_logs"] = []; save_data(self.all_data); self.refresh_logs_display(); self.show_toast_progress("🗑️ 日誌已清空"); self.log_action("🗑️ 執行清空歷史操作日誌")
 
+
+    # ==========================================
+    #     🛒 0.6. 購車願望清單分頁 🆕
+    # ==========================================
+    def setup_wishlist_tab(self):
+        input_frame = tk.LabelFrame(self.tab_wishlist, text=" 🛒 新增想購買的載具 ", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#3498db", padx=12, pady=12, bd=2)
+        input_frame.pack(fill="x", padx=15, pady=10)
+
+        for i in range(5): input_frame.columnconfigure(i, weight=0)
+        input_frame.columnconfigure(1, weight=1)
+        input_frame.columnconfigure(3, weight=1)
+
+        tk.Label(input_frame, text="目標車輛名稱:", bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL).grid(row=0, column=0, sticky="e", pady=5, padx=5)
+        self.ent_wish_name = tk.Entry(input_frame, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid")
+        self.ent_wish_name.grid(row=0, column=1, sticky="we", padx=5, pady=5)
+        apply_focus_highlight(self.ent_wish_name)
+
+        tk.Label(input_frame, text="目標價格(GTA$):", bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL).grid(row=0, column=2, sticky="e", pady=5, padx=5)
+        self.ent_wish_price = tk.Entry(input_frame, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid")
+        self.ent_wish_price.grid(row=0, column=3, sticky="we", padx=5, pady=5)
+        apply_focus_highlight(self.ent_wish_price)
+
+        tk.Label(input_frame, text="備註(改裝想法):", bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL).grid(row=1, column=0, sticky="e", pady=5, padx=5)
+        self.ent_wish_note = tk.Entry(input_frame, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid")
+        self.ent_wish_note.grid(row=1, column=1, columnspan=3, sticky="we", padx=5, pady=5)
+        apply_focus_highlight(self.ent_wish_note)
+
+        ttk.Button(input_frame, text="➕ 加入願望清單", command=self.add_wishlist, style="Primary.TButton", padding=(20, 4)).grid(row=0, column=4, rowspan=2, sticky="ns", padx=(15, 5), pady=5)
+        
+        self.ent_wish_name.bind("<Return>", lambda e: self.ent_wish_price.focus())
+        self.ent_wish_price.bind("<Return>", lambda e: self.ent_wish_note.focus())
+        self.ent_wish_note.bind("<Return>", lambda e: self.add_wishlist())
+
+        action_frame = tk.Frame(self.tab_wishlist, bg=COLOR_MAIN_BG); action_frame.pack(fill="x", padx=15, pady=5)
+        
+        ttk.Button(action_frame, text="🎉 買到了！一鍵轉入正式車庫", command=self.buy_wishlist_item, style="Success.TButton").pack(side="left", padx=3)
+        ttk.Button(action_frame, text="🗑️ 放棄購買", command=self.delete_wishlist_item, style="Danger.TButton").pack(side="right", padx=3)
+
+        tree_frame = tk.Frame(self.tab_wishlist, bg=COLOR_MAIN_BG); tree_frame.pack(fill="both", expand=True, padx=15, pady=10)
+        self.tree_wishlist = ttk.Treeview(tree_frame, columns=("name", "price", "notes"), show="headings", selectmode="extended")
+        
+        self.tree_wishlist.heading("name", text="目標車輛名稱")
+        self.tree_wishlist.heading("price", text="預計花費(GTA$)")
+        self.tree_wishlist.heading("notes", text="願望備註")
+        
+        self.tree_wishlist.column("name", width=250, anchor="w", stretch=True)
+        self.tree_wishlist.column("price", width=150, anchor="center", stretch=False)
+        self.tree_wishlist.column("notes", width=350, anchor="w", stretch=True)
+        
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree_wishlist.yview)
+        self.tree_wishlist.configure(yscrollcommand=vsb.set); vsb.pack(side="right", fill="y"); self.tree_wishlist.pack(side="left", fill="both", expand=True)
+
+    def refresh_wishlist_table(self):
+        if not hasattr(self, 'tree_wishlist'): return
+        for i in self.tree_wishlist.get_children(): self.tree_wishlist.delete(i)
+        if not self.data or "wishlist" not in self.data: return
+        
+        for idx, w in enumerate(self.data["wishlist"]):
+            price_str = f"$ {int(w.get('price', 0)):,}" if w.get('price') else "$ 0"
+            self.tree_wishlist.insert("", "end", iid=str(idx), values=(w.get("name", ""), price_str, w.get("notes", "")))
+
+    def add_wishlist(self):
+        if not self.data: return
+        name = self.ent_wish_name.get().strip()
+        if not name: return
+        try: price = int(self.ent_wish_price.get().strip() or 0)
+        except: price = 0
+        notes = self.ent_wish_note.get()
+        
+        if "wishlist" not in self.data: self.data["wishlist"] = []
+        self.data["wishlist"].append({"name": name, "price": price, "notes": notes})
+        save_data(self.all_data)
+        self.log_action(f"🛒 加入願望清單：【{name}】 (目標價格: $ {price:,})")
+        
+        self.ent_wish_name.delete(0, tk.END)
+        self.ent_wish_price.delete(0, tk.END)
+        self.ent_wish_note.delete(0, tk.END)
+        self.refresh_wishlist_table()
+        self.show_toast_progress("🛒 願望已加入清單！")
+
+    def delete_wishlist_item(self):
+        if not self.data or "wishlist" not in self.data: return
+        selected = self.tree_wishlist.selection()
+        if not selected: return messagebox.showwarning("提示", "請先點選清單中的項目！")
+        if messagebox.askyesno("確認刪除", "確定要放棄購買並移除這些項目嗎？"):
+            for item in sorted([int(s) for s in selected], reverse=True): 
+                del self.data["wishlist"][item]
+            save_data(self.all_data)
+            self.refresh_wishlist_table()
+            self.show_toast_progress("🗑️ 已從願望清單移除")
+
+    def buy_wishlist_item(self):
+        if not self.data or "wishlist" not in self.data: return
+        selected = self.tree_wishlist.selection()
+        if not selected: return messagebox.showwarning("提示", "請先點選您已經買到的願望車輛！")
+        
+        current_time = time.strftime('%Y-%m-%d %H:%M')
+        added_count = 0
+        
+        for item in sorted([int(s) for s in selected], reverse=True): 
+            w = self.data["wishlist"][item]
+            
+            # 直接建立新車輛至「未分類」車庫
+            self.data["vehicles"].append({
+                "name": w["name"], "garage": "未分類", "v_type": "", "acquire": "購買獲得", 
+                "price": w["price"], "upgraded": "未改滿", "count": 1, "notes": w["notes"], 
+                "locked": False, "pinned": False,
+                "created_at": current_time, "updated_at": current_time
+            })
+            del self.data["wishlist"][item]
+            added_count += 1
+            
+        save_data(self.all_data)
+        self.log_action(f"🎉 願望達成：將 {added_count} 台夢想載具成功牽入未分類車庫！")
+        self.refresh_wishlist_table()
+        self.refresh_vehicle_tables()
+        self.refresh_statistics()
+        
+        messagebox.showinfo("🎉 恭喜牽新車！", f"成功將 {added_count} 輛車移入正式資產清單。\n它們目前停放在【未分類】車庫，請至「車輛管理」面板調整詳細停放位置！")
+        self.notebook.select(self.tab_vehicles)
+
     # ==========================================
     #   ✨ 勾選功能核心邏輯
     # ==========================================
@@ -1689,7 +1854,6 @@ class GTAGarageApp:
         else:
             actual_col = display_cols[col_idx]
             
-        # 若實際點擊到的是 "check" 欄位才進行勾選切換
         if actual_col == "check": 
             item_iid = tree.identify_row(event.y)
             if not item_iid: return
@@ -1831,19 +1995,28 @@ class GTAGarageApp:
         tk.Label(input_frame, text="載具名稱:", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=0, column=0, sticky="e", pady=5, padx=5)
         self.entry_name = tk.Entry(input_frame, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid")
         self.entry_name.grid(row=0, column=1, sticky="we", padx=5, pady=5)
-        apply_focus_highlight(self.entry_name); self.entry_name.bind("<Return>", lambda e: self.combo_garage.focus()); self.entry_name.bind("<FocusIn>", lambda e: self.set_status("📍 當前游標位置：【載具名稱】 (輸入完請按 Enter 跳下一格)", "#00E676"), add="+")
+        apply_focus_highlight(self.entry_name)
 
         tk.Label(input_frame, text="存放位置:", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=0, column=2, sticky="e", pady=5, padx=5)
         self.combo_garage = ttk.Combobox(input_frame, state="readonly", font=FONT_NORMAL)
         self.combo_garage.grid(row=0, column=3, sticky="we", padx=5, pady=5)
-        self.combo_garage.bind("<Return>", lambda e: self.combo_acquire.focus()); self.combo_garage.bind("<FocusIn>", lambda e: self.set_status("📍 當前游標位置：【存放位置】 (可按 ↑ ↓ 鍵快速選擇，選完請按 Enter)", "#00E676"), add="+")
 
         tk.Label(input_frame, text="取得方式:", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=0, column=4, sticky="e", pady=5, padx=5)
         self.combo_acquire = ttk.Combobox(input_frame, state="readonly", font=FONT_NORMAL)
         self.combo_acquire.grid(row=0, column=5, sticky="we", padx=5, pady=5)
-        self.combo_acquire.bind("<Return>", lambda e: self.add_vehicle()); self.combo_acquire.bind("<FocusIn>", lambda e: self.set_status("📍 當前游標位置：【取得方式】 (選完按 Enter 即可直接送出新增！)", "#00E676"), add="+")
+        
+        # 🆕 Row 1: 加入價格輸入框
+        tk.Label(input_frame, text="購入價格(GTA$):", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=1, column=0, sticky="e", pady=5, padx=5)
+        self.entry_price = tk.Entry(input_frame, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid")
+        self.entry_price.grid(row=1, column=1, sticky="we", padx=5, pady=5)
+        apply_focus_highlight(self.entry_price)
 
-        ttk.Button(input_frame, text="➕ 新增登記", command=self.add_vehicle, style="Success.TButton", padding=(20, 4)).grid(row=0, column=6, sticky="e", padx=(15, 5), pady=5)
+        ttk.Button(input_frame, text="➕ 新增登記", command=self.add_vehicle, style="Success.TButton", padding=(20, 4)).grid(row=0, column=6, rowspan=2, sticky="ns", padx=(15, 5), pady=5)
+
+        self.entry_name.bind("<Return>", lambda e: self.combo_garage.focus())
+        self.combo_garage.bind("<Return>", lambda e: self.combo_acquire.focus())
+        self.combo_acquire.bind("<Return>", lambda e: self.entry_price.focus())
+        self.entry_price.bind("<Return>", lambda e: self.add_vehicle())
 
         action_frame = tk.Frame(self.tab_vehicles, bg=COLOR_MAIN_BG); action_frame.pack(fill="x", padx=15, pady=5)
         tk.Label(action_frame, text="🔍 全域搜尋:", bg=COLOR_MAIN_BG, fg="white", font=FONT_NORMAL).pack(side="left")
@@ -1854,14 +2027,14 @@ class GTAGarageApp:
         self.combo_garage_filter = ttk.Combobox(action_frame, width=20, state="readonly", font=FONT_NORMAL); self.combo_garage_filter.pack(side="left", padx=5); self.combo_garage_filter.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
         ttk.Button(action_frame, text="重置", command=self.reset_filters, style="Secondary.TButton").pack(side="left", padx=6)
         
-        # 🆕 顯示/隱藏欄位按鈕
         ttk.Button(action_frame, text="👁️ 欄位設定", command=self.open_column_selector, style="Dark.TButton").pack(side="left", padx=6)
 
         tree_frame = tk.Frame(self.tab_vehicles, bg=COLOR_MAIN_BG); tree_frame.pack(fill="both", expand=True, padx=15, pady=10)
         
-        self.tree_vehicles = ttk.Treeview(tree_frame, columns=("check", "name", "garage", "vtype", "acquire", "upgrade", "count", "notes"), show="headings", selectmode="extended")
+        # 🆕 增加 price 欄位
+        self.tree_vehicles = ttk.Treeview(tree_frame, columns=("check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"), show="headings", selectmode="extended")
         
-        columns_config = {"check": "☑ 選取", "name": "車輛名稱", "garage": "存放位置", "vtype": "類型", "acquire": "取得方式", "upgrade": "改裝", "count": "數量", "notes": "備註"}
+        columns_config = {"check": "☑ 選取", "name": "車輛名稱", "garage": "存放位置", "vtype": "類型", "acquire": "取得方式", "price":"價值(GTA$)", "upgrade": "改裝", "count": "數量", "notes": "備註"}
         for col, text in columns_config.items(): self.tree_vehicles.heading(col, text=text, command=lambda c=col: self.sort_treeview(self.tree_vehicles, c, False))
         
         self.tree_vehicles.column("check", width=60, anchor="center", stretch=False)
@@ -1869,6 +2042,7 @@ class GTAGarageApp:
         self.tree_vehicles.column("garage", width=140, anchor="center", stretch=True)
         self.tree_vehicles.column("vtype", width=90, anchor="center", stretch=False)
         self.tree_vehicles.column("acquire", width=100, anchor="center", stretch=False)
+        self.tree_vehicles.column("price", width=110, anchor="center", stretch=False) # 🆕
         self.tree_vehicles.column("upgrade", width=80, anchor="center", stretch=False)
         self.tree_vehicles.column("count", width=50, anchor="center", stretch=False)
         self.tree_vehicles.column("notes", width=120, anchor="w", stretch=True)
@@ -1894,9 +2068,9 @@ class GTAGarageApp:
         ttk.Button(btn_frame_np, text="👁️ 欄位設定", command=self.open_column_selector, style="Dark.TButton").pack(side="left", padx=3)
 
         tree_frame = tk.Frame(self.tab_non_personal, bg=COLOR_MAIN_BG); tree_frame.pack(fill="both", expand=True, padx=15, pady=5)
-        self.tree_non_personal = ttk.Treeview(tree_frame, columns=("check", "name", "garage", "vtype", "acquire", "upgrade", "count", "notes"), show="headings", selectmode="extended")
+        self.tree_non_personal = ttk.Treeview(tree_frame, columns=("check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"), show="headings", selectmode="extended")
         
-        columns_config = {"check": "☑ 選取", "name": "車輛名稱", "garage": "存放位置", "vtype": "類型", "acquire": "取得方式", "upgrade": "改裝", "count": "數量", "notes": "備註"}
+        columns_config = {"check": "☑ 選取", "name": "車輛名稱", "garage": "存放位置", "vtype": "類型", "acquire": "取得方式", "price":"價值(GTA$)", "upgrade": "改裝", "count": "數量", "notes": "備註"}
         for col, text in columns_config.items(): self.tree_non_personal.heading(col, text=text, command=lambda c=col: self.sort_treeview(self.tree_non_personal, c, False))
         
         self.tree_non_personal.column("check", width=60, anchor="center", stretch=False)
@@ -1904,6 +2078,7 @@ class GTAGarageApp:
         self.tree_non_personal.column("garage", width=140, anchor="center", stretch=True)
         self.tree_non_personal.column("vtype", width=90, anchor="center", stretch=False)
         self.tree_non_personal.column("acquire", width=100, anchor="center", stretch=False)
+        self.tree_non_personal.column("price", width=110, anchor="center", stretch=False) # 🆕
         self.tree_non_personal.column("upgrade", width=80, anchor="center", stretch=False)
         self.tree_non_personal.column("count", width=50, anchor="center", stretch=False)
         self.tree_non_personal.column("notes", width=120, anchor="w", stretch=True)
@@ -1954,7 +2129,6 @@ class GTAGarageApp:
             iid = str(idx)
             display_name = car["name"]
             
-            # ✨ 新增本日新車 NEW 標籤
             if car.get("created_at", "").startswith(today_str):
                 display_name = "🆕 " + display_name
                 
@@ -1962,7 +2136,11 @@ class GTAGarageApp:
             if car.get("pinned", False): display_name = "📌 " + display_name
             
             check_symbol = "☑" if idx in getattr(self, 'checked_indices', set()) else "☐"
-            values = (check_symbol, display_name, car["garage"], car.get("v_type", ""), car.get("acquire", ""), car.get("upgraded", ""), car.get("count", 1), car.get("notes", ""))
+            
+            # 處理數字格式
+            price_str = f"$ {int(car.get('price', 0)):,}" if car.get("price") else "$ 0"
+            
+            values = (check_symbol, display_name, car["garage"], car.get("v_type", ""), car.get("acquire", ""), price_str, car.get("upgraded", ""), car.get("count", 1), car.get("notes", ""))
             
             is_np = car.get("v_type", "") in ["非個人載具", "帕格薩斯"]
             target_tree = self.tree_non_personal if is_np and hasattr(self, 'tree_non_personal') else self.tree_vehicles
@@ -1984,6 +2162,8 @@ class GTAGarageApp:
         if not name: return
         garage = self.combo_garage.get().strip() or "未分類"
         vtype = "" 
+        try: price = int(self.entry_price.get().strip() or 0)
+        except: price = 0
         
         app_set = self.data.get("app_settings", {})
         disable_limits = app_set.get("disable_all_limits", False)
@@ -2015,12 +2195,13 @@ class GTAGarageApp:
                 except: current_c = 1
                 existing_car["count"] = current_c + 1
                 existing_car["updated_at"] = current_time 
+                if price > 0 and existing_car.get("price", 0) == 0: existing_car["price"] = price # 更新為有輸入的價格
                 
                 self.sync_special_from_vehicles(); save_data(self.all_data)
                 self.log_action(f"✅ 合併載具數量：將現有的【{name}】數量 +1 (總數: {current_c + 1})")
                 self.entry_search.delete(0, tk.END); self.combo_garage_filter.set("全部")
                 self.refresh_vehicle_tables(); self.refresh_special_table(); self.refresh_garage_table()
-                self.entry_name.delete(0, tk.END); self.combo_acquire.set("") 
+                self.entry_name.delete(0, tk.END); self.combo_acquire.set(""); self.entry_price.delete(0, tk.END)
                 self.show_toast_progress("🚗 數量合併成功！")
                 self.set_status(f"✅ 【{name}】已存在，系統已自動將其數量 +1！", "#4CAF50") 
                 idx_str = str(existing_idx)
@@ -2040,18 +2221,19 @@ class GTAGarageApp:
 
         self.data["vehicles"].append({
             "name": name, "garage": garage, "v_type": vtype, "acquire": self.combo_acquire.get(), 
-            "upgraded": upgraded, "count": count, "notes": "", "locked": False, "pinned": False,
+            "price": price, "upgraded": upgraded, "count": count, "notes": "", "locked": False, "pinned": False,
             "created_at": current_time, "updated_at": current_time
         })
         self.sync_special_from_vehicles(); save_data(self.all_data)
         
-        self.log_action(f"✅ 新增載具：【{name}】 (儲存至：{garage})")
+        self.log_action(f"✅ 新增載具：【{name}】 (儲存至：{garage} | 價值：{price})")
         
         self.entry_search.delete(0, tk.END); self.combo_garage_filter.set("全部")
         
-        self.refresh_vehicle_tables(); self.refresh_special_table(); self.refresh_garage_table()
+        self.refresh_vehicle_tables(); self.refresh_special_table(); self.refresh_garage_table(); self.refresh_statistics()
         self.entry_name.delete(0, tk.END)
         self.combo_acquire.set("") 
+        self.entry_price.delete(0, tk.END)
         
         self.show_toast_progress("🚗 登記成功！")
         self.set_status(f"✅ 新增成功：【{name}】已入庫。游標已自動回到【載具名稱】，可直接繼續打字！", "#4CAF50") 
@@ -2083,7 +2265,7 @@ class GTAGarageApp:
             self.update_checked_button_text()
             
             self.sync_special_from_vehicles(); save_data(self.all_data); self.apply_filters()
-            self.refresh_special_table(); self.refresh_garage_table()
+            self.refresh_special_table(); self.refresh_garage_table(); self.refresh_statistics()
             
             self.log_action(f"🗑️ 刪除載具：共移除了 {len(selected)} 筆載具資料 ({', '.join(names_deleted)[:50]}{'...' if len(', '.join(names_deleted)) > 50 else ''})")
             self.set_status(f"🗑️ 成功刪除 {len(selected)} 筆載具資料。", "#FF9800")
@@ -2164,7 +2346,6 @@ class GTAGarageApp:
                 name = parts[0].strip(); garage = parts[1].strip() if len(parts) > 1 else "未分類"
                 if garage in SUB_CARRIER_RULES and not self.validate_tab1_vehicle_to_garage(name, garage, show_error=False): garage = "未分類"
                 
-                # ✨ 帕格薩斯強制規則
                 if garage == "帕格薩斯":
                     v_type = "帕格薩斯"
                     upgraded = "不可改裝"
@@ -2184,16 +2365,16 @@ class GTAGarageApp:
                         merged += 1
                     else: 
                         if garage not in self.data["garages"] and garage not in spec_carriers: garage = "未分類"
-                        self.data["vehicles"].append({"name": name, "garage": garage, "v_type": v_type, "acquire": "", "upgraded": upgraded, "count": count, "notes": "已重複", "locked": False, "pinned": False, "created_at": current_time, "updated_at": current_time})
+                        self.data["vehicles"].append({"name": name, "garage": garage, "v_type": v_type, "acquire": "", "price": 0, "upgraded": upgraded, "count": count, "notes": "已重複", "locked": False, "pinned": False, "created_at": current_time, "updated_at": current_time})
                         added += 1
                 else:
                     if garage not in self.data["garages"] and garage not in spec_carriers: garage = "未分類"
-                    self.data["vehicles"].append({"name": name, "garage": garage, "v_type": v_type, "acquire": "", "upgraded": upgraded, "count": count, "notes": "", "locked": False, "pinned": False, "created_at": current_time, "updated_at": current_time})
+                    self.data["vehicles"].append({"name": name, "garage": garage, "v_type": v_type, "acquire": "", "price": 0, "upgraded": upgraded, "count": count, "notes": "", "locked": False, "pinned": False, "created_at": current_time, "updated_at": current_time})
                     added += 1
                     
             self.sync_special_from_vehicles(); save_data(self.all_data)
             if added > 0 or merged > 0: self.log_action(f"📦 批量登入執行完畢：全新增 {added} 筆，合併覆蓋 {merged} 筆")
-            self.refresh_vehicle_tables(); self.refresh_special_table(); win.destroy(); self.refresh_garage_table()
+            self.refresh_vehicle_tables(); self.refresh_special_table(); win.destroy(); self.refresh_garage_table(); self.refresh_statistics()
             self.show_toast_progress(f"📦 批量登入完成 (新增 {added} 筆, 覆蓋 {merged} 筆)")
             self.set_status(f"📦 批量操作完成，共登入了 {added} 筆資料，合併覆蓋了 {merged} 筆數量。", "#2196F3")
             if added > 0 or merged > 0:
@@ -2233,7 +2414,7 @@ class GTAGarageApp:
             idx = int(selected[0]); car = self.data["vehicles"][idx]
             old_name_ref = car['name']
             win = tk.Toplevel(self.root); win.title("編輯載具資產")
-            self.center_toplevel_window(win, 350, 520) 
+            self.center_toplevel_window(win, 350, 580) 
             
             tk.Label(win, text="載具資產名稱:", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(12,2))
             ent_name = tk.Entry(win, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid", width=22); ent_name.insert(0, car['name']); ent_name.pack(); ent_name.focus()
@@ -2242,19 +2423,20 @@ class GTAGarageApp:
             combo_edit_vtype = ttk.Combobox(win, state="readonly", values=V_TYPE_OPTIONS, font=FONT_NORMAL)
             combo_edit_acquire = ttk.Combobox(win, state="readonly", values=acq_opts, font=FONT_NORMAL)
             combo_edit_upgrade = ttk.Combobox(win, state="readonly", values=["未改滿", "已改滿", "不可改裝"], font=FONT_NORMAL)
+            ent_price = tk.Entry(win, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid", width=22)
             ent_count = tk.Entry(win, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid", width=22)
             ent_notes = tk.Entry(win, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid", width=22)
             
-            apply_focus_highlight(ent_name); apply_focus_highlight(ent_count); apply_focus_highlight(ent_notes)
+            apply_focus_highlight(ent_name); apply_focus_highlight(ent_price); apply_focus_highlight(ent_count); apply_focus_highlight(ent_notes)
 
             tk.Label(win, text="存放位置 (車庫/特殊載具):", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(6,2)); combo_edit_garage.set(car.get('garage', '未分類')); combo_edit_garage.pack()
             tk.Label(win, text="載具類型:", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(6,2)); combo_edit_vtype.set(car.get('v_type', '')); combo_edit_vtype.pack()
             tk.Label(win, text="取得方式:", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(6,2)); combo_edit_acquire.set(car.get('acquire', '')); combo_edit_acquire.pack()
+            tk.Label(win, text="購入價格(GTA$):", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(6,2)); ent_price.insert(0, str(car.get('price', 0))); ent_price.pack()
             tk.Label(win, text="改裝狀態:", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(6,2)); combo_edit_upgrade.set(car.get('upgraded', '')); combo_edit_upgrade.pack()
             tk.Label(win, text="資產數量:", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(6,2)); ent_count.insert(0, str(car.get('count', 1))); ent_count.pack()
             tk.Label(win, text="自訂備註:", bg=COLOR_MAIN_BG, fg=COLOR_TEXT_WHITE, font=FONT_BOLD).pack(pady=(6,2)); ent_notes.insert(0, car.get('notes', '')); ent_notes.pack()
             
-            # ✨ 動態鎖定/解鎖機制：優化版，允許連動脫逃
             def on_edit_combobox_change(e=None):
                 if e:
                     if e.widget == combo_edit_garage:
@@ -2292,7 +2474,10 @@ class GTAGarageApp:
                     if not disable_limits and self.count_cars_in_garage(new_g) >= lim: 
                         return messagebox.showerror("容量已滿", f"【{new_g}】空間不足！上限為 {lim} 台。")
                 
-                car.update({'name': new_car_name, 'garage': new_g, 'v_type': combo_edit_vtype.get(), 'acquire': combo_edit_acquire.get(), 'upgraded': combo_edit_upgrade.get(), 'notes': ent_notes.get()})
+                try: p_val = int(ent_price.get() or 0)
+                except: p_val = 0
+                
+                car.update({'name': new_car_name, 'garage': new_g, 'v_type': combo_edit_vtype.get(), 'acquire': combo_edit_acquire.get(), 'price': p_val, 'upgraded': combo_edit_upgrade.get(), 'notes': ent_notes.get()})
                 car['updated_at'] = time.strftime('%Y-%m-%d %H:%M')
                 try: car['count'] = int(ent_count.get())
                 except: car['count'] = 1 
@@ -2303,7 +2488,7 @@ class GTAGarageApp:
                 if pre_selected is not None:
                     self.checked_indices.clear(); self.update_checked_button_text()
 
-                self.refresh_vehicle_tables(); self.refresh_garage_table(); self.refresh_special_table(); win.destroy(); self.show_toast_progress("✅ 資產修改成功！")
+                self.refresh_vehicle_tables(); self.refresh_garage_table(); self.refresh_special_table(); self.refresh_statistics(); win.destroy(); self.show_toast_progress("✅ 資產修改成功！")
                 self.set_status(f"✏️ 資料庫已更新：【{new_car_name}】屬性修改成功。", "#4CAF50")
                 
                 idx_str = str(idx)
@@ -2327,7 +2512,7 @@ class GTAGarageApp:
                     self.sync_special_from_vehicles()
                     save_data(self.all_data)
                     self.log_action(f"🗑️ 刪除載具：移除了 {old_name_ref}")
-                    self.refresh_vehicle_tables(); self.refresh_garage_table(); self.refresh_special_table()
+                    self.refresh_vehicle_tables(); self.refresh_garage_table(); self.refresh_special_table(); self.refresh_statistics()
                     self.set_status(f"🗑️ 成功刪除 1 筆載具資料。", "#FF9800")
                     win.destroy()
             
@@ -2337,8 +2522,9 @@ class GTAGarageApp:
             ttk.Button(btn_frame, text="🗑️ 刪除", command=delete_action, style="Danger.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
             
             ent_name.bind("<Return>", lambda e: combo_edit_garage.focus()); combo_edit_garage.bind("<Return>", lambda e: combo_edit_vtype.focus())
-            combo_edit_vtype.bind("<Return>", lambda e: combo_edit_acquire.focus()); combo_edit_acquire.bind("<Return>", lambda e: combo_edit_upgrade.focus())
-            combo_edit_upgrade.bind("<Return>", lambda e: ent_count.focus()); ent_count.bind("<Return>", lambda e: ent_notes.focus()); ent_notes.bind("<Return>", save_single)
+            combo_edit_vtype.bind("<Return>", lambda e: combo_edit_acquire.focus()); combo_edit_acquire.bind("<Return>", lambda e: ent_price.focus())
+            ent_price.bind("<Return>", lambda e: combo_edit_upgrade.focus()); combo_edit_upgrade.bind("<Return>", lambda e: ent_count.focus())
+            ent_count.bind("<Return>", lambda e: ent_notes.focus()); ent_notes.bind("<Return>", save_single)
 
         else:
             win = tk.Toplevel(self.root); win.title("批量修改與檢視已勾選資產")
