@@ -30,7 +30,7 @@ except ImportError:
     HAS_OCR = False
 
 # === 軟體版本與更新設定 ===
-APP_VERSION = "4.54.0 🎲 每日專屬座駕版" 
+APP_VERSION = "1.0.0" 
 UPDATE_URL = "https://raw.githubusercontent.com/cvk82519-boop/GTA-Garage-App/refs/heads/main/version.json"
 DATA_FILE = "gta5_garage_data.json"
 
@@ -179,7 +179,7 @@ def save_data(all_data):
 class GTAGarageApp:
     def __init__(self, root):
         self.root = root
-        self.root.title(f"洛聖都資產管理系統 {APP_VERSION}")
+        self.root.title(f"GTAV資產管理系統 {APP_VERSION}")
         self.root.configure(bg=COLOR_MAIN_BG)
         
         self.root.resizable(True, True)
