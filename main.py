@@ -30,7 +30,7 @@ except ImportError:
     HAS_OCR = False
 
 # === 軟體版本與更新設定 ===
-APP_VERSION = "2.0.0" 
+APP_VERSION = "1.1.3" 
 UPDATE_URL = "https://raw.githubusercontent.com/cvk82519-boop/GTA-Garage-App/refs/heads/main/version.json"
 DATA_FILE = "gta5_garage_data.json"
 
@@ -831,7 +831,7 @@ class GTAGarageApp:
 
     def backup_data(self):
         if not os.path.exists(DATA_FILE): return messagebox.showinfo("備份", "目前沒有資料檔案可備份。")
-        default_name = f"backup_gta_data_{int(time.time())}.json"
+        default_name = "GTA_Garage_Manual_Backup.json"  # 固定檔名，直接覆蓋
         file_path = filedialog.asksaveasfilename(title="選擇備份儲存位置", initialfile=default_name, defaultextension=".json", filetypes=[("JSON 資料檔", "*.json"), ("所有檔案", "*.*")])
         if not file_path: return 
         try:
@@ -859,7 +859,7 @@ class GTAGarageApp:
         if not self.data or not self.data.get("vehicles"):
             return messagebox.showinfo("匯出", "目前沒有車輛資料可供匯出。")
             
-        default_name = f"GTA_Garage_Export_{self.current_id}_{int(time.time())}.csv"
+        default_name = f"GTA_Garage_Export_{self.current_id}.csv"  # 固定檔名
         file_path = filedialog.asksaveasfilename(title="匯出車輛清單為 CSV", initialfile=default_name, defaultextension=".csv", filetypes=[("CSV 檔案", "*.csv"), ("所有檔案", "*.*")])
         if not file_path: return 
         
@@ -1144,6 +1144,59 @@ class GTAGarageApp:
 
     def setup_status_bar(self):
         self.status_bar = tk.Label(self.root, text="💡 系統就緒。", bg="#111111", fg="#FF9800", font=FONT_BOLD, anchor="w", padx=15, pady=6); self.status_bar.pack(side="bottom", fill="x")
+        self.root.after(1000, self.apply_new_tags_loop)
+
+    def apply_new_tags_loop(self):
+        if hasattr(self, 'data') and self.data:
+            import datetime
+            now = datetime.datetime.now()
+            def is_new(t_str):
+                if not t_str: return False
+                try: return (now - datetime.datetime.strptime(t_str, '%Y-%m-%d %H:%M')).total_seconds() < 86400
+                except: return False
+            
+            # 掃描車輛清單
+            for tree in [getattr(self, 'tree_vehicles', None), getattr(self, 'tree_non_personal', None)]:
+                if not tree or not tree.winfo_exists(): continue
+                for child in tree.get_children():
+                    try:
+                        idx = int(child)
+                        car = self.data["vehicles"][idx]
+                        curr = tree.set(child, "name")
+                        is_n = is_new(car.get("updated_at", car.get("created_at", "")))
+                        if is_n and not curr.startswith("🆕 "): tree.set(child, "name", "🆕 " + curr.replace("🆕 ", ""))
+                        elif not is_n and curr.startswith("🆕 "): tree.set(child, "name", curr.replace("🆕 ", ""))
+                    except: pass
+                    
+            # 掃描特種載具清單
+            tree_sp = getattr(self, 'tree_special', None)
+            if tree_sp and tree_sp.winfo_exists():
+                for child in tree_sp.get_children():
+                    try:
+                        idx = int(child)
+                        sv = self.data["special_vehicles"][idx]
+                        curr = tree_sp.set(child, "name")
+                        is_n = is_new(sv.get("updated_at", ""))
+                        if is_n and not curr.startswith("🆕 "): tree_sp.set(child, "name", "🆕 " + curr.replace("🆕 ", ""))
+                        elif not is_n and curr.startswith("🆕 "): tree_sp.set(child, "name", curr.replace("🆕 ", ""))
+                    except: pass
+                    
+            # 掃描車庫儀表板
+            if hasattr(self, 'scrollable_frame') and self.scrollable_frame.winfo_exists():
+                for widget in self.scrollable_frame.winfo_children():
+                    if isinstance(widget, tk.Frame):
+                        for child in widget.winfo_children():
+                            if isinstance(child, tk.Label):
+                                txt = child.cget("text")
+                                if "▪️" in txt or "🆕" in txt:
+                                    g_name = txt.replace("▪️ ", "").replace("🆕 ", "").split("  (")[0].strip()
+                                    ts = self.data.get("garage_timestamps", {}).get(g_name, "")
+                                    is_n = is_new(ts)
+                                    if is_n and "▪️" in txt: child.config(text=txt.replace("▪️", "🆕"))
+                                    elif not is_n and "🆕" in txt: child.config(text=txt.replace("🆕", "▪️"))
+                                    
+        # 背景引擎每 3 秒自動核對一次時間
+        self.root.after(3000, self.apply_new_tags_loop)
 
     def set_status(self, msg, color="#FF9800"):
         if hasattr(self, 'status_bar') and self.status_bar.winfo_exists(): self.status_bar.config(text=msg, fg=color)
@@ -1514,11 +1567,17 @@ class GTAGarageApp:
 ==================================================
 【系統開發與重大更新日誌】
 
-🌟 最新版本：{APP_VERSION}
+🌟 最新版本：V1.1.3 (檔案極簡化版)
 📅 更新日期：2026-08
 
-📝 本次重大更新回顧 (V1.0.0)：
-正式版
+📝 本次重大更新回顧 (V1.1.3)：
+9. 💾 [系統] 優化手動備份與匯出邏輯，移除時間戳記，固定為單一檔案(覆蓋模式)，不再產生大量備份複本。
+
+📝 歷史更新回顧 (V1.1.2)：
+8. 🛠️ [系統] 升級外掛程式全面進化，具備「GUI 版本控制器」，支援自訂版本號與編輯更新公告！
+
+📝 歷史更新回顧 (V1.1.1)：
+7. ✨ [視覺] 支援「24 小時限時新品標記」，新增車庫與載具自動掛上 🆕 標籤！
 """
         # 將管理員公告與系統日誌合併
         final_content = admin_text + "\n\n" + changelog if admin_text else changelog
@@ -2806,7 +2865,7 @@ class GTAGarageApp:
             if not limit: return
             self.data["garage_limits"][name] = limit
 
-        self.data["special_vehicles"].append({"name": name, "location": location, "inner_vehicle": inner_car, "can_store": can_store, "locked": False, "pinned": False}) 
+        self.data["special_vehicles"].append({"name": name, "location": location, "inner_vehicle": inner_car, "can_store": can_store, "locked": False, "pinned": False, "updated_at": time.strftime("%Y-%m-%d %H:%M")}) 
         self.sync_vehicles_from_special(); save_data(self.all_data)
         
         self.log_action(f"🚁 建立特殊載具：登記了新設備【{name}】 (停放於 {location})") 
@@ -2958,7 +3017,7 @@ class GTAGarageApp:
                     if v.get("garage") == old_name: v["garage"] = new_name
                 if old_name in self.data["garage_limits"]: del self.data["garage_limits"][old_name]
                 
-            self.data["special_vehicles"][idx].update({"name": new_name, "location": new_loc, "inner_vehicle": new_inner, "can_store": new_store}) 
+            self.data["special_vehicles"][idx].update({"name": new_name, "location": new_loc, "inner_vehicle": new_inner, "can_store": new_store, "updated_at": time.strftime("%Y-%m-%d %H:%M")}) 
             if new_store: self.data["garage_limits"][new_name] = new_limit
             
             self.sync_vehicles_from_special(); save_data(self.all_data)
@@ -3286,6 +3345,10 @@ class GTAGarageApp:
                 if cat and cat not in self.data["garage_category_options"]:
                     self.data["garage_category_options"].append(cat)
                 
+                if "garage_timestamps" not in self.data: self.data["garage_timestamps"] = {}
+                for line in lines:
+                    n = line.strip()
+                    if n and n in self.data["garages"]: self.data["garage_timestamps"][n] = time.strftime("%Y-%m-%d %H:%M")
                 save_data(self.all_data)
                 self.log_action(f"📦 批量新增車庫：共新增了 {added} 個車庫")
                 if hasattr(self, 'refresh_garage_table'): self.refresh_garage_table()
@@ -3384,6 +3447,8 @@ class GTAGarageApp:
             self.data["garage_categories"][name] = cat 
             added_names.append(name)
             
+        if "garage_timestamps" not in self.data: self.data["garage_timestamps"] = {}
+        for fn in added_names: self.data["garage_timestamps"][fn] = time.strftime("%Y-%m-%d %H:%M")
         save_data(self.all_data)
         
         if len(added_names) > 1:
@@ -3607,6 +3672,8 @@ class GTAGarageApp:
                 for sv in self.data.get("special_vehicles", []):
                     if sv.get("location") == old_name: sv["location"] = new_name
             
+            if "garage_timestamps" not in self.data: self.data["garage_timestamps"] = {}
+            self.data["garage_timestamps"][new_name] = time.strftime("%Y-%m-%d %H:%M")
             save_data(self.all_data)
             self.log_action(f"✏️ 編輯車庫屬性：修改了【{old_name}】(更名為 {new_name} | 分類: {new_cat} | 上限: {new_limit})")
             
