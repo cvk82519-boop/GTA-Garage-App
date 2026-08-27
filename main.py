@@ -490,7 +490,12 @@ class GTAGarageApp:
 
     def check_login_status(self):
         is_l = bool(self.current_id and self.current_id in self.all_data["profiles"])
-        if hasattr(self, 'lbl_current_user'): self.lbl_current_user.config(text=f"👤 當前登入：{self.current_id}" if is_l else "👤 當前狀態：尚未登入 (請至「帳號管理」登入)", fg="#4CAF50" if is_l else "#F39C12")
+        if hasattr(self, 'lbl_current_user'):
+            file_path = os.path.abspath(DATA_FILE)
+            if is_l:
+                self.lbl_current_user.config(text=f"👤 當前登入：{self.current_id}    |    💾 存檔位置：{file_path}", fg="#4CAF50")
+            else:
+                self.lbl_current_user.config(text=f"👤 當前狀態：尚未登入 (請至「帳號管理」登入)    |    💾 存檔位置：{file_path}", fg="#F39C12")
         if hasattr(self, 'btn_tab_login'): self.btn_tab_login.config(state="disabled" if is_l else "normal"); self.btn_tab_logout.config(state="normal" if is_l else "disabled")
         if hasattr(self, "refresh_account_listbox"): self.refresh_account_listbox()
         if hasattr(self, 'edit_menu'):
