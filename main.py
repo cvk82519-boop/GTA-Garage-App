@@ -99,7 +99,7 @@ class GTAGarageApp:
         self.style = ttk.Style(); self.style.theme_use("clam")
         self.style.configure(".", background=COLOR_MAIN_BG, foreground=COLOR_TEXT_WHITE, font=FONT_NORMAL)
         self.style.configure("TNotebook", background=COLOR_MAIN_BG, borderwidth=0, padding=2)
-        self.style.configure("TNotebook.Tab", background=COLOR_CARD_BG, foreground=COLOR_TEXT_GRAY, font=FONT_BOLD, padding=[15, 6])
+        self.style.configure("TNotebook.Tab", background=COLOR_CARD_BG, foreground=COLOR_TEXT_GRAY, font=("Microsoft JhengHei", 10, "bold"), padding=[6, 4])
         self.style.map("TNotebook.Tab", background=[("selected", COLOR_MAIN_BG)], foreground=[("selected", "#4CAF50")])
         self.style.configure("Treeview", background=COLOR_CARD_BG, fieldbackground=COLOR_CARD_BG, foreground=COLOR_TEXT_WHITE, font=FONT_NORMAL, rowheight=28)
         self.style.configure("Treeview.Heading", background="#151515", foreground=COLOR_TEXT_WHITE, font=FONT_BOLD, borderwidth=1)
@@ -175,7 +175,14 @@ class GTAGarageApp:
         self.menubar.add_cascade(label="編輯 (E)", menu=em); self.edit_menu = em
         tm = tk.Menu(self.menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
         tm.add_command(label="⏱️ 呼叫任務碼錶", command=self.toggle_stopwatch_window); tm.add_command(label="📦 批量登入", command=self.open_batch_import_window); tm.add_separator(); tm.add_command(label="⚙️ 系統全域設定", command=self.open_settings_window)
-        self.menubar.add_cascade(label="系統工具 (T)", menu=tm); self.tools_menu = tm; self.root.config(menu=self.menubar)
+        self.menubar.add_cascade(label="系統工具 (T)", menu=tm); self.tools_menu = tm
+        
+        # 🎯 新增的專屬選單
+        nm = tk.Menu(self.menubar, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
+        nm.add_command(label="📝 新增任務攻略", command=self.open_add_guide_window)
+        self.menubar.add_cascade(label="新增 (N)", menu=nm)
+        
+        self.root.config(menu=self.menubar)
 
     def open_column_selector(self):
         if self.check_win('col_window'): return
@@ -839,15 +846,49 @@ class GTAGarageApp:
         tree.bind("<ButtonRelease-1>", self.on_tree_click); tree.bind("<Control-a>", self.select_all_vehicles); tree.bind("<Control-A>", self.select_all_vehicles); tree.bind("<Double-1>", self.open_edit_window); tree.bind("<Return>", self.open_edit_window); tree.bind("<Delete>", self.delete_vehicle); tree.bind("<Motion>", self.on_vehicle_hover); tree.bind("<Leave>", lambda e: self.set_status("💡 系統就緒。", "#FF9800")); tree.bind("<Button-3>", self.show_vehicle_context_menu)
 
     def setup_vehicles_tab(self):
-        inf = tk.LabelFrame(self.tab_vehicles, text=" 📝 登記新載具資產 ", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#4CAF50", padx=12, pady=12, bd=2); inf.pack(fill="x", padx=15, pady=(5, 10))
-        for i in range(7): inf.columnconfigure(i, weight=0)
-        inf.columnconfigure(1, weight=1); inf.columnconfigure(3, weight=1); inf.columnconfigure(5, weight=1)
-        tk.Label(inf, text="載具名稱:", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=0, column=0, sticky="e", pady=5, padx=5); self.entry_name = tk.Entry(inf, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid"); self.entry_name.grid(row=0, column=1, sticky="we", padx=5, pady=5); apply_focus_highlight(self.entry_name)
-        tk.Label(inf, text="存放位置:", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=0, column=2, sticky="e", pady=5, padx=5); self.combo_garage = ttk.Combobox(inf, state="readonly", font=FONT_NORMAL); self.combo_garage.grid(row=0, column=3, sticky="we", padx=5, pady=5)
-        tk.Label(inf, text="取得方式:", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=0, column=4, sticky="e", pady=5, padx=5); self.combo_acquire = ttk.Combobox(inf, state="readonly", font=FONT_NORMAL); self.combo_acquire.grid(row=0, column=5, sticky="we", padx=5, pady=5)
-        tk.Label(inf, text="購入價格(GTA$):", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=1, column=0, sticky="e", pady=5, padx=5); self.entry_price = tk.Entry(inf, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid"); self.entry_price.grid(row=1, column=1, sticky="we", padx=5, pady=5); apply_focus_highlight(self.entry_price)
-        ttk.Button(inf, text="➕ 新增登記", command=self.add_vehicle, style="Success.TButton", padding=(20, 4)).grid(row=0, column=6, rowspan=2, sticky="ns", padx=(15, 5), pady=5)
-        self.entry_name.bind("<Return>", lambda e: self.combo_garage.focus()); self.combo_garage.bind("<Return>", lambda e: self.combo_acquire.focus()); self.combo_acquire.bind("<Return>", lambda e: self.entry_price.focus()); self.entry_price.bind("<Return>", lambda e: self.add_vehicle())
+        inf = tk.LabelFrame(self.tab_vehicles, text=" 📝 登記新載具資產 ", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#4CAF50", padx=12, pady=12, bd=2)
+        inf.pack(fill="x", padx=15, pady=(5, 10))
+        
+        # 總共需要 9 個欄位 (4個標籤 + 4個輸入框 + 1個按鈕 = index 0~8)
+        for i in range(9): 
+            inf.columnconfigure(i, weight=0)
+            
+        # 讓輸入框 (index 1, 3, 5, 7) 可以自動延伸寬度
+        inf.columnconfigure(1, weight=1)
+        inf.columnconfigure(3, weight=1)
+        inf.columnconfigure(5, weight=1)
+        inf.columnconfigure(7, weight=1)
+        
+        # --- 第 1 組：載具名稱 ---
+        tk.Label(inf, text="載具名稱:", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=0, column=0, sticky="e", pady=5, padx=5)
+        self.entry_name = tk.Entry(inf, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid")
+        self.entry_name.grid(row=0, column=1, sticky="we", padx=5, pady=5)
+        apply_focus_highlight(self.entry_name)
+        
+        # --- 第 2 組：存放位置 ---
+        tk.Label(inf, text="存放位置:", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=0, column=2, sticky="e", pady=5, padx=5)
+        self.combo_garage = ttk.Combobox(inf, state="readonly", font=FONT_NORMAL)
+        self.combo_garage.grid(row=0, column=3, sticky="we", padx=5, pady=5)
+        
+        # --- 第 3 組：取得方式 ---
+        tk.Label(inf, text="取得方式:", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=0, column=4, sticky="e", pady=5, padx=5)
+        self.combo_acquire = ttk.Combobox(inf, state="readonly", font=FONT_NORMAL)
+        self.combo_acquire.grid(row=0, column=5, sticky="we", padx=5, pady=5)
+        
+        # --- 第 4 組：購入價格 ---
+        tk.Label(inf, text="購入價格(GTA$):", bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, font=FONT_NORMAL).grid(row=0, column=6, sticky="e", pady=5, padx=5)
+        self.entry_price = tk.Entry(inf, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid")
+        self.entry_price.grid(row=0, column=7, sticky="we", padx=5, pady=5)
+        apply_focus_highlight(self.entry_price)
+        
+        # --- 第 5 組：新增按鈕 (全部都在 row 0，取消原本的 rowspan) ---
+        ttk.Button(inf, text="➕ 新增登記", command=self.add_vehicle, style="Success.TButton", padding=(15, 4)).grid(row=0, column=8, sticky="ns", padx=(10, 5), pady=5)
+        
+        # 綁定 Enter 鍵自動跳到下一格的快捷功能
+        self.entry_name.bind("<Return>", lambda e: self.combo_garage.focus())
+        self.combo_garage.bind("<Return>", lambda e: self.combo_acquire.focus())
+        self.combo_acquire.bind("<Return>", lambda e: self.entry_price.focus())
+        self.entry_price.bind("<Return>", lambda e: self.add_vehicle())
         af = tk.Frame(self.tab_vehicles, bg=COLOR_MAIN_BG); af.pack(fill="x", padx=15, pady=5)
         tk.Label(af, text="🔍 全域搜尋:", bg=COLOR_MAIN_BG, fg="white", font=FONT_NORMAL).pack(side="left")
         self.entry_search = tk.Entry(af, width=20, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white", insertbackground="white", relief="solid"); self.entry_search.pack(side="left", padx=5); self.entry_search.bind("<KeyRelease>", self.apply_filters); apply_focus_highlight(self.entry_search) 
@@ -1537,47 +1578,33 @@ class GTAGarageApp:
                     if s.get("location") == gn: s["location"] = "未分類"
             if bn in self.expanded_bases: self.expanded_bases.remove(bn)
             save_data(self.all_data); self.log_action(f"🏠 變賣：【{bn}】"); self.refresh_garage_table(); self.apply_filters(); self.update_garage_comboboxes(); self.refresh_special_table(); self.set_status(f"🏠 出售【{bn}】", "#FF9800")
-
     # ==========================================
-    # 📚 全新功能：攻略筆記 (多行菁英條件版)
+    # 📚 全新架構：攻略筆記 (極簡全螢幕 + 右鍵選單管理)
     # ==========================================
     def setup_guides_tab(self):
-        inf = tk.LabelFrame(self.tab_guides, text=" 📝 新增任務與菁英條件 ", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#3498db", padx=12, pady=12, bd=2)
-        inf.pack(fill="x", padx=15, pady=10)
-        
-        tk.Label(inf, text="任務名稱:", bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL).grid(row=0, column=0, sticky="ne", pady=5, padx=5)
-        self.ent_guide_name = tk.Entry(inf, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=25)
-        self.ent_guide_name.grid(row=0, column=1, sticky="nw", padx=5, pady=5)
-        apply_focus_highlight(self.ent_guide_name)
-        
-        tk.Label(inf, text="菁英條件\n(可按 Enter 換行):", bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL).grid(row=0, column=2, sticky="ne", pady=5, padx=5)
-        self.ent_guide_elite = tk.Text(inf, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=45, height=3)
-        self.ent_guide_elite.grid(row=0, column=3, sticky="we", padx=5, pady=5)
-        apply_focus_highlight(self.ent_guide_elite)
-        
-        ttk.Button(inf, text="➕ 儲存", command=self.add_guide, style="Primary.TButton", padding=(20, 4)).grid(row=0, column=4, sticky="ns", padx=(15, 5), pady=5)
-        
         af = tk.Frame(self.tab_guides, bg=COLOR_MAIN_BG)
-        af.pack(fill="x", padx=15, pady=5)
-        ttk.Button(af, text="✏️ 編輯選取", command=self.open_guide_edit_window, style="Secondary.TButton").pack(side="left", padx=3)
-        ttk.Button(af, text="🗑️ 刪除", command=self.delete_guide, style="Danger.TButton").pack(side="right", padx=3)
+        af.pack(fill="x", padx=15, pady=(15, 5))
+        
+        # 提示文字，引導用戶去上方選單與使用右鍵
+        tk.Label(af, text="💡 提示：按上方【新增 (N)】建立攻略。在下方清單按【滑鼠右鍵】可編輯或刪除資料。", font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="#a8e6cf").pack(side="left")
         
         tf = tk.Frame(self.tab_guides, bg=COLOR_MAIN_BG)
         tf.pack(fill="both", expand=True, padx=15, pady=10)
         
-        # 🎯 垂直預覽黑板：解決表格無法換行顯示的問題
         self.txt_guide_preview = tk.Text(tf, font=FONT_NORMAL, bg="#111111", fg="#a8e6cf", relief="solid", height=5)
         self.txt_guide_preview.pack(side="bottom", fill="x", pady=(10, 0))
         self.txt_guide_preview.insert("1.0", "💡 點擊上方的任務清單，這裡會「垂直顯示」完整的多行菁英條件...")
         self.txt_guide_preview.config(state="disabled")
         
-        self.tree_guides = ttk.Treeview(tf, columns=("name", "elite", "time"), show="headings", selectmode="extended")
+        self.tree_guides = ttk.Treeview(tf, columns=("category", "name", "elite", "time"), show="headings", selectmode="extended")
+        self.tree_guides.heading("category", text="系列大標題")
         self.tree_guides.heading("name", text="任務名稱")
         self.tree_guides.heading("elite", text="菁英條件 (預覽)")
         self.tree_guides.heading("time", text="更新時間")
         
-        self.tree_guides.column("name", width=200, anchor="w", stretch=False)
-        self.tree_guides.column("elite", width=550, anchor="w", stretch=True)
+        self.tree_guides.column("category", width=160, anchor="w", stretch=False)
+        self.tree_guides.column("name", width=180, anchor="w", stretch=False)
+        self.tree_guides.column("elite", width=420, anchor="w", stretch=True)
         self.tree_guides.column("time", width=140, anchor="center", stretch=False)
         
         sb = ttk.Scrollbar(tf, orient="vertical", command=self.tree_guides.yview)
@@ -1585,9 +1612,12 @@ class GTAGarageApp:
         sb.pack(side="right", fill="y")
         self.tree_guides.pack(side="left", fill="both", expand=True)
         
-        # 🎯 綁定單擊顯示預覽，雙擊編輯
         self.tree_guides.bind("<Double-1>", self.open_guide_edit_window)
         self.tree_guides.bind("<<TreeviewSelect>>", self.on_guide_select)
+        
+        # 🎯 綁定右鍵專屬選單
+        self.guide_popup_menu = tk.Menu(self.root, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
+        self.tree_guides.bind("<Button-3>", self.show_guide_context_menu)
 
     def on_guide_select(self, event=None):
         if not self.data or "guides" not in self.data: return
@@ -1599,40 +1629,43 @@ class GTAGarageApp:
         else:
             idx = int(sel[0])
             g = self.data["guides"][idx]
-            self.txt_guide_preview.insert("1.0", f"🎯 【{g.get('mission_name', '')}】菁英條件：\n{g.get('elite_conditions', '')}")
+            cat = g.get('category', '').strip()
+            name = g.get('mission_name', '').strip()
+            title = f"【{cat}】 - {name}" if cat else f"【{name}】"
+            self.txt_guide_preview.insert("1.0", f"🎯 {title} 菁英條件：\n{g.get('elite_conditions', '')}")
         self.txt_guide_preview.config(state="disabled")
 
+    def show_guide_context_menu(self, event):
+        if not self.data: return
+        iid = self.tree_guides.identify_row(event.y)
+        if iid:
+            # 如果滑鼠右鍵點擊的那一行沒有被選取，就自動幫它選起來
+            if iid not in self.tree_guides.selection():
+                self.tree_guides.selection_set(iid)
+            self.on_guide_select() # 手動刷新一下底下的預覽黑板
+            
+            # 展開右鍵選單
+            self.guide_popup_menu.delete(0, tk.END)
+            self.guide_popup_menu.add_command(label="✏️ 編輯選取的任務", command=lambda: self.open_guide_edit_window(event))
+            self.guide_popup_menu.add_separator()
+            self.guide_popup_menu.add_command(label="🗑️ 刪除該筆任務", command=self.delete_guide)
+            self.guide_popup_menu.post(event.x_root, event.y_root)
     def refresh_guides_table(self):
         if hasattr(self, 'tree_guides') and self.tree_guides.winfo_exists():
             for i in self.tree_guides.get_children(): self.tree_guides.delete(i)
             if self.data and "guides" in self.data:
-                for idx, g in enumerate(self.data["guides"]): 
+                # 🎯 智慧分類排序：以「大標題」為第一優先，相同的再依照「任務名稱」排序
+                sorted_indices = sorted(
+                    range(len(self.data["guides"])), 
+                    key=lambda i: (self.data["guides"][i].get("category", ""), self.data["guides"][i].get("mission_name", ""))
+                )
+                for idx in sorted_indices: 
+                    g = self.data["guides"][idx]
                     elite_display = g.get("elite_conditions", "").replace("\n", "  /  ")
-                    self.tree_guides.insert("", "end", iid=str(idx), values=(g.get("mission_name", ""), elite_display, g.get("updated_at", "")))
+                    cat = g.get("category", "")
+                    self.tree_guides.insert("", "end", iid=str(idx), values=(cat, g.get("mission_name", ""), elite_display, g.get("updated_at", "")))
             self.on_guide_select()
 
-    def add_guide(self):
-        if not self.data: return
-        n = self.ent_guide_name.get().strip()
-        el = self.ent_guide_elite.get("1.0", tk.END).strip()
-        
-        if not n: return messagebox.showwarning("提示", "請輸入任務名稱！")
-        
-        self.data.setdefault("guides", []).append({
-            "mission_name": n, 
-            "elite_conditions": el, 
-            "created_at": time.strftime('%Y-%m-%d %H:%M'), 
-            "updated_at": time.strftime('%Y-%m-%d %H:%M')
-        })
-        save_data(self.all_data)
-        self.log_action(f"📚 新增任務：【{n}】")
-        
-        self.ent_guide_name.delete(0, tk.END)
-        self.ent_guide_elite.delete("1.0", tk.END)
-        self.refresh_guides_table()
-        self.show_toast_progress("📚 任務已儲存！")
-        self.ent_guide_name.focus()
-        
     def delete_guide(self):
         if not self.data or "guides" not in self.data: return
         sel = self.tree_guides.selection()
@@ -1644,8 +1677,81 @@ class GTAGarageApp:
             self.refresh_guides_table()
             self.show_toast_progress("🗑️ 任務已刪除")
 
+    # 🎯 全新獨立新增視窗 (下拉選單版)
+    def open_add_guide_window(self):
+        if not getattr(self, 'data', None): 
+            return messagebox.showwarning("提示", "請先至「帳號管理」登入角色 ID！")
+            
+        if self.check_win('guide_add_window'): return
+        
+        self.guide_add_window = win = tk.Toplevel(self.root)
+        win.title("📝 新增任務攻略")
+        try: self.center_toplevel_window(win, 450, 420)
+        except: win.geometry("450x420")
+        win.configure(bg=COLOR_CARD_BG)
+        
+        tk.Label(win, text="系列大標題 (可選現有或輸入新名稱):", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).pack(pady=(15,2))
+        
+        # 💡 自動抓取現有大標題清單
+        existing_cats = []
+        if self.data and "guides" in self.data:
+            for g in self.data["guides"]:
+                c = g.get("category", "").strip()
+                if c and c not in existing_cats:
+                    existing_cats.append(c)
+                    
+        # 將原本的 Entry 升級為 Combobox
+        ecat = ttk.Combobox(win, font=FONT_NORMAL, values=existing_cats, width=33)
+        last_cat = self.data.get("guides", [])[-1].get("category", "") if self.data.get("guides") else ""
+        ecat.insert(0, last_cat)
+        ecat.pack()
+        
+        tk.Label(win, text="任務名稱:", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).pack(pady=(10,2))
+        en = tk.Entry(win, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=35)
+        en.pack()
+        en.focus() # 自動對焦到任務名稱
+        apply_focus_highlight(en)
+        
+        tk.Label(win, text="菁英條件 (可多行):", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).pack(pady=(10,2))
+        ee = tk.Text(win, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=35, height=6)
+        ee.pack()
+        apply_focus_highlight(ee)
+        
+        def save_new(e=None):
+            cat = ecat.get().strip()
+            n = en.get().strip()
+            el = ee.get("1.0", tk.END).strip()
+            
+            if not n: return messagebox.showwarning("提示", "請輸入任務名稱！", parent=win)
+            
+            self.data.setdefault("guides", []).append({
+                "category": cat,
+                "mission_name": n, 
+                "elite_conditions": el, 
+                "created_at": time.strftime('%Y-%m-%d %H:%M'), 
+                "updated_at": time.strftime('%Y-%m-%d %H:%M')
+            })
+            save_data(self.all_data)
+            self.log_action(f"📚 新增任務：【{cat}】{n}")
+            
+            self.refresh_guides_table()
+            self.show_toast_progress("📚 任務已儲存！")
+            
+            # 動態更新下拉選單清單，不用重開視窗就能立刻看到新的分類
+            if cat and cat not in ecat["values"]:
+                ecat["values"] = list(ecat["values"]) + [cat]
+            
+            # 儲存後清空任務名稱與條件
+            en.delete(0, tk.END)
+            ee.delete("1.0", tk.END)
+            en.focus()
+            
+        bf = tk.Frame(win, bg=COLOR_CARD_BG)
+        bf.pack(fill="x", padx=45, pady=20)
+        ttk.Button(bf, text="✨ 儲存並繼續新增", command=save_new, style="Success.TButton").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
+        ttk.Button(bf, text="關閉", command=win.destroy, style="Secondary.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
+
     def open_guide_edit_window(self, event=None):
-        # 🎯 終極防呆：如果滑鼠點擊的位置「沒有選中任何行(例如空白處)」，就直接返回，不彈出視窗
         if event and not self.tree_guides.identify_row(event.y): 
             return
             
@@ -1658,10 +1764,26 @@ class GTAGarageApp:
         g = self.data["guides"][idx]
         self.guide_edit_window = win = tk.Toplevel(self.root)
         win.title("編輯任務")
-        self.center_toplevel_window(win, 450, 350)
+        
+        try: self.center_toplevel_window(win, 450, 420)
+        except: win.geometry("450x420")
+        
         win.configure(bg=COLOR_CARD_BG)
         
-        tk.Label(win, text="任務名稱:", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).pack(pady=(15,2))
+        tk.Label(win, text="系列大標題 (可選現有或輸入新名稱):", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).pack(pady=(15,2))
+        
+        # 💡 自動抓取現有大標題清單 (編輯視窗同樣升級)
+        existing_cats = []
+        for temp_g in self.data.get("guides", []):
+            c = temp_g.get("category", "").strip()
+            if c and c not in existing_cats:
+                existing_cats.append(c)
+                
+        ecat = ttk.Combobox(win, font=FONT_NORMAL, values=existing_cats, width=33)
+        ecat.insert(0, g.get('category', ''))
+        ecat.pack()
+        
+        tk.Label(win, text="任務名稱:", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).pack(pady=(10,2))
         en = tk.Entry(win, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=35)
         en.insert(0, g.get('mission_name', ''))
         en.pack()
@@ -1676,6 +1798,7 @@ class GTAGarageApp:
         
         def save(e=None): 
             g.update({
+                'category': ecat.get().strip(),
                 'mission_name': en.get().strip(), 
                 'elite_conditions': ee.get("1.0", tk.END).strip(), 
                 'updated_at': time.strftime('%Y-%m-%d %H:%M')
@@ -1689,7 +1812,6 @@ class GTAGarageApp:
         bf.pack(fill="x", padx=45, pady=20)
         ttk.Button(bf, text="儲存", command=save, style="Success.TButton").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
         ttk.Button(bf, text="取消", command=win.destroy, style="Secondary.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
-
 
 if __name__ == "__main__":
     try:
