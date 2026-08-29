@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_KEYBOARD = False
 
-APP_VERSION = "1.1.31"
+APP_VERSION = "1.2.0"
 DATA_FILE = "gta5_garage_data.json"
 
 ACQUIRE_OPTIONS = ["購買獲得", "任務獲得", "生涯成就", "賭場轉盤", "搶劫獲得", "車友會", "其他備註"]
@@ -34,7 +34,7 @@ COLOR_MAIN_BG, COLOR_CARD_BG, COLOR_TEXT_WHITE, COLOR_TEXT_GRAY, COLOR_FOCUS_BG 
 FONT_NORMAL, FONT_BOLD, FONT_LARGE_BOLD = ("Microsoft JhengHei", 12), ("Microsoft JhengHei", 13, "bold"), ("Microsoft JhengHei", 14, "bold")
 
 def apply_focus_highlight(widget):
-    if isinstance(widget, tk.Entry):
+    if isinstance(widget, tk.Entry) or isinstance(widget, tk.Text):
         widget.bind("<FocusIn>", lambda e: widget.config(bg=COLOR_FOCUS_BG), add="+")
         widget.bind("<FocusOut>", lambda e: widget.config(bg=COLOR_CARD_BG), add="+")
 
@@ -66,9 +66,10 @@ def save_data(all_data):
                 if g not in ["未分類", "帕格薩斯"]: p_data["garage_limits"][g] = 10
         else: p_data["garage_limits"]["帕格薩斯"] = 999
         if "wishlist" not in p_data: p_data["wishlist"] = []
+        if "guides" not in p_data: p_data["guides"] = []
         if "action_logs" not in p_data: p_data["action_logs"] = []
         if "app_settings" not in p_data: p_data["app_settings"] = {}
-        defaults = {"tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, "tab_wishlist": True, "tool_stopwatch": True, "disable_all_limits": False, "auto_backup": True, "default_garage_limit": 10, "default_special_limit": 2, "default_countdown_sec": 300.0, "hotkey_pause": "pause", "hotkey_start": "w", "visible_columns": ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"] }
+        defaults = {"tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, "tab_wishlist": True, "tab_guides": True, "tool_stopwatch": True, "disable_all_limits": False, "auto_backup": True, "default_garage_limit": 10, "default_special_limit": 2, "default_countdown_sec": 300.0, "hotkey_pause": "pause", "hotkey_start": "w", "visible_columns": ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"] }
         for k, v in defaults.items():
             if k not in p_data["app_settings"]: p_data["app_settings"][k] = v
         if "acquire_options" not in p_data: p_data["acquire_options"] = ACQUIRE_OPTIONS.copy()
@@ -118,14 +119,16 @@ class GTAGarageApp:
         self.root.after(50, self.master_stopwatch_loop)
         
         self.notebook = ttk.Notebook(root); self.notebook.pack(fill="both", expand=True, padx=8, pady=5); self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
-        self.tab_bulletin = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_account = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_vehicles = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_non_personal = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_special = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_garages = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_wishlist = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_statistics = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_logs = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
+        self.tab_bulletin = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_account = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_vehicles = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_non_personal = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_special = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_garages = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_wishlist = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_guides = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_statistics = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_logs = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
 
-        self.tab_widgets = {"📢 系統公告": self.tab_bulletin, "👥 帳號管理": self.tab_account, "🚗 車輛管理": self.tab_vehicles, "🚜 非個人與帕格薩斯": self.tab_non_personal, "🚁 特殊載具": self.tab_special, "🏠 車庫管理": self.tab_garages, "🛒 購車願望清單": self.tab_wishlist, "📊 統計資料": self.tab_statistics, "📜 操作日誌": self.tab_logs}
+        self.tab_widgets = {"📢 系統公告": self.tab_bulletin, "👥 帳號管理": self.tab_account, "🚗 車輛管理": self.tab_vehicles, "🚜 非個人與帕格薩斯": self.tab_non_personal, "🚁 特殊載具": self.tab_special, "🏠 車庫管理": self.tab_garages, "🛒 購車願望清單": self.tab_wishlist, "📚 攻略筆記": self.tab_guides, "📊 統計資料": self.tab_statistics, "📜 操作日誌": self.tab_logs}
         self.tab_order = app_config.get("tab_order", list(self.tab_widgets.keys()))
+        for expected_tab in self.tab_widgets.keys():
+            if expected_tab not in self.tab_order: self.tab_order.insert(max(0, len(self.tab_order)-2), expected_tab)
         for t_name in self.tab_order:
             if t_name in self.tab_widgets: self.notebook.add(self.tab_widgets[t_name], text=f" {t_name} ")
         
-        self.setup_menu_bar(); self.setup_profile_bar(); self.setup_status_bar(); self.setup_bulletin_tab(); self.setup_account_tab(); self.setup_vehicles_tab(); self.setup_non_personal_tab(); self.setup_special_tab(); self.setup_garages_tab(); self.setup_wishlist_tab(); self.setup_statistics_tab(); self.setup_logs_tab()
+        self.setup_menu_bar(); self.setup_profile_bar(); self.setup_status_bar(); self.setup_bulletin_tab(); self.setup_account_tab(); self.setup_vehicles_tab(); self.setup_non_personal_tab(); self.setup_special_tab(); self.setup_garages_tab(); self.setup_wishlist_tab(); self.setup_guides_tab(); self.setup_statistics_tab(); self.setup_logs_tab()
         self.apply_settings(); self.check_login_status()
 
     def check_win(self, attr_name):
@@ -345,7 +348,7 @@ class GTAGarageApp:
         tk.Label(sf, text="👁️ 版面顯示設定", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#4CAF50").pack(pady=(15, 5))
         st = self.data.get("app_settings", {}); vd = {}
         fc = tk.Frame(sf, bg=COLOR_CARD_BG); fc.pack(fill="x", padx=40)
-        for k, t in [("tab_bulletin", "📢 公告"), ("tab_vehicles", "🚗 車輛"), ("tab_non_personal", "🚜 非個人"), ("tab_special", "🚁 特殊"), ("tab_garages", "🏠 車庫"), ("tab_wishlist", "🛒 願望"), ("tab_statistics", "📊 統計"), ("tab_logs", "📜 日誌"), ("tool_stopwatch", "⏱️ 碼錶"), ("auto_backup", "🛡️ 自動備份")]:
+        for k, t in [("tab_bulletin", "📢 公告"), ("tab_vehicles", "🚗 車輛"), ("tab_non_personal", "🚜 非個人"), ("tab_special", "🚁 特殊"), ("tab_garages", "🏠 車庫"), ("tab_wishlist", "🛒 願望"), ("tab_guides", "📚 攻略"), ("tab_statistics", "📊 統計"), ("tab_logs", "📜 日誌"), ("tool_stopwatch", "⏱️ 碼錶"), ("auto_backup", "🛡️ 自動備份")]:
             v = tk.BooleanVar(win, value=st.get(k, True)); vd[k] = v; tk.Checkbutton(fc, text=t, variable=v, bg=COLOR_CARD_BG, fg="white", selectcolor="#757575", font=FONT_BOLD).pack(anchor="w", pady=3)
         ttk.Separator(sf, orient="horizontal").pack(fill="x", pady=15, padx=20)
         tk.Label(sf, text="🛠️ 全域容量設定", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#e74c3c").pack(pady=(5, 5))
@@ -504,14 +507,14 @@ class GTAGarageApp:
                 except: pass
         if is_l:
             self.data = self.all_data["profiles"][self.current_id]
-            for k, d in [("vehicles", []), ("special_vehicles", []), ("garages", ["未分類", "帕格薩斯", "日蝕大樓", "日蝕大樓 - 車庫1"]), ("action_logs", []), ("acquire_options", ACQUIRE_OPTIONS.copy()), ("wishlist", [])]:
+            for k, d in [("vehicles", []), ("special_vehicles", []), ("garages", ["未分類", "帕格薩斯", "日蝕大樓", "日蝕大樓 - 車庫1"]), ("action_logs", []), ("acquire_options", ACQUIRE_OPTIONS.copy()), ("wishlist", []), ("guides", [])]:
                 if k not in self.data: self.data[key] = d
             if "garage_limits" not in self.data:
                 self.data["garage_limits"] = {"未分類": 999}; 
                 for g in self.data["garages"]: 
                     if g != "未分類": self.data["garage_limits"][g] = 10
             if "app_settings" not in self.data: self.data["app_settings"] = {}
-            for k, v in {"tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, "tab_wishlist": True, "tool_stopwatch": True, "disable_all_limits": False, "auto_backup": True, "default_garage_limit": 10, "default_special_limit": 2, "visible_columns": ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"]}.items():
+            for k, v in {"tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, "tab_wishlist": True, "tab_guides": True, "tool_stopwatch": True, "disable_all_limits": False, "auto_backup": True, "default_garage_limit": 10, "default_special_limit": 2, "visible_columns": ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"]}.items():
                 if k not in self.data["app_settings"]: self.data["app_settings"][k] = v
             for v in self.data["vehicles"]:
                 if v.get("garage") == "帕格薩斯" or v.get("v_type") == "帕格薩斯": v.update({"garage":"帕格薩斯", "v_type":"帕格薩斯", "count":1, "upgraded":"不可改裝"})
@@ -526,10 +529,10 @@ class GTAGarageApp:
             if hasattr(self, 'text_logs'): self.text_logs.config(state="normal"); self.text_logs.delete("1.0", tk.END); self.text_logs.config(state="disabled")
         s = self.data.get("app_settings", {}) if self.data else {}
         self.notebook.tab(self.tab_bulletin, state="normal" if s.get("tab_bulletin", True) else "hidden"); self.notebook.tab(self.tab_account, state="normal")
-        for k, t in [("tab_vehicles", self.tab_vehicles), ("tab_non_personal", self.tab_non_personal), ("tab_special", self.tab_special), ("tab_garages", self.tab_garages), ("tab_wishlist", self.tab_wishlist), ("tab_statistics", self.tab_statistics), ("tab_logs", self.tab_logs)]:
+        for k, t in [("tab_vehicles", self.tab_vehicles), ("tab_non_personal", self.tab_non_personal), ("tab_special", self.tab_special), ("tab_garages", self.tab_garages), ("tab_wishlist", self.tab_wishlist), ("tab_guides", self.tab_guides), ("tab_statistics", self.tab_statistics), ("tab_logs", self.tab_logs)]:
             self.notebook.tab(t, state="normal" if (is_l and s.get(k, True)) else "hidden")
         self.update_garage_comboboxes(); self.update_acquire_comboboxes(); self.refresh_vehicle_tables(); self.refresh_special_table(); self.refresh_garage_table(); self.apply_settings(); self.on_tab_changed()
-        if is_l: self.refresh_bulletin_display(); self.refresh_logs_display(); self.refresh_wishlist_table(); self.update_checked_button_text()
+        if is_l: self.refresh_bulletin_display(); self.refresh_logs_display(); self.refresh_wishlist_table(); self.refresh_guides_table(); self.update_checked_button_text()
         if is_l and self.notebook.select() and "統計" in self.notebook.tab(self.notebook.select(), "text"): self.refresh_statistics()
 
     def update_acquire_comboboxes(self):
@@ -589,7 +592,7 @@ class GTAGarageApp:
         name = self.entry_new_account.get().strip()
         if not name: return messagebox.showwarning("提示", "請輸入角色 ID 名稱！")
         if name in self.all_data["profiles"]: return messagebox.showwarning("重複", "ID 已經存在！")
-        self.all_data["profiles"][name] = {"vehicles": [], "special_vehicles": [], "garages": ["未分類", "帕格薩斯", "日蝕大樓", "日蝕大樓 - 車庫1"], "garage_limits": {"未分類": 999, "帕格薩斯": 999, "日蝕大樓": 10, "日蝕大樓 - 車庫1": 10}, "action_logs": [f"[{time.strftime('%Y-%m-%d %H:%M:%S')}]  🌟 建立角色 ID 檔案"], "acquire_options": ACQUIRE_OPTIONS.copy(), "wishlist": [], "app_settings": {"tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, "tab_wishlist": True, "tool_stopwatch": True, "disable_all_limits": False, "auto_backup": True, "default_garage_limit": 10, "default_special_limit": 2, "visible_columns": ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"]}}
+        self.all_data["profiles"][name] = {"vehicles": [], "special_vehicles": [], "garages": ["未分類", "帕格薩斯", "日蝕大樓", "日蝕大樓 - 車庫1"], "garage_limits": {"未分類": 999, "帕格薩斯": 999, "日蝕大樓": 10, "日蝕大樓 - 車庫1": 10}, "action_logs": [f"[{time.strftime('%Y-%m-%d %H:%M:%S')}]  🌟 建立角色 ID 檔案"], "acquire_options": ACQUIRE_OPTIONS.copy(), "wishlist": [], "app_settings": {"tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, "tab_special": True, "tab_garages": True, "tab_statistics": True, "tab_logs": True, "tab_wishlist": True, "tab_guides": True, "tool_stopwatch": True, "disable_all_limits": False, "auto_backup": True, "default_garage_limit": 10, "default_special_limit": 2, "visible_columns": ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"]}}
         save_data(self.all_data); self.refresh_account_listbox(); self.entry_new_account.delete(0, tk.END); self.show_toast_progress(f"✅ 成功建立：{name}")
 
     def delete_profile_from_tab(self):
@@ -1534,6 +1537,159 @@ class GTAGarageApp:
                     if s.get("location") == gn: s["location"] = "未分類"
             if bn in self.expanded_bases: self.expanded_bases.remove(bn)
             save_data(self.all_data); self.log_action(f"🏠 變賣：【{bn}】"); self.refresh_garage_table(); self.apply_filters(); self.update_garage_comboboxes(); self.refresh_special_table(); self.set_status(f"🏠 出售【{bn}】", "#FF9800")
+
+    # ==========================================
+    # 📚 全新功能：攻略筆記 (多行菁英條件版)
+    # ==========================================
+    def setup_guides_tab(self):
+        inf = tk.LabelFrame(self.tab_guides, text=" 📝 新增任務與菁英條件 ", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#3498db", padx=12, pady=12, bd=2)
+        inf.pack(fill="x", padx=15, pady=10)
+        
+        tk.Label(inf, text="任務名稱:", bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL).grid(row=0, column=0, sticky="ne", pady=5, padx=5)
+        self.ent_guide_name = tk.Entry(inf, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=25)
+        self.ent_guide_name.grid(row=0, column=1, sticky="nw", padx=5, pady=5)
+        apply_focus_highlight(self.ent_guide_name)
+        
+        tk.Label(inf, text="菁英條件\n(可按 Enter 換行):", bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL).grid(row=0, column=2, sticky="ne", pady=5, padx=5)
+        self.ent_guide_elite = tk.Text(inf, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=45, height=3)
+        self.ent_guide_elite.grid(row=0, column=3, sticky="we", padx=5, pady=5)
+        apply_focus_highlight(self.ent_guide_elite)
+        
+        ttk.Button(inf, text="➕ 儲存", command=self.add_guide, style="Primary.TButton", padding=(20, 4)).grid(row=0, column=4, sticky="ns", padx=(15, 5), pady=5)
+        
+        af = tk.Frame(self.tab_guides, bg=COLOR_MAIN_BG)
+        af.pack(fill="x", padx=15, pady=5)
+        ttk.Button(af, text="✏️ 編輯選取", command=self.open_guide_edit_window, style="Secondary.TButton").pack(side="left", padx=3)
+        ttk.Button(af, text="🗑️ 刪除", command=self.delete_guide, style="Danger.TButton").pack(side="right", padx=3)
+        
+        tf = tk.Frame(self.tab_guides, bg=COLOR_MAIN_BG)
+        tf.pack(fill="both", expand=True, padx=15, pady=10)
+        
+        # 🎯 垂直預覽黑板：解決表格無法換行顯示的問題
+        self.txt_guide_preview = tk.Text(tf, font=FONT_NORMAL, bg="#111111", fg="#a8e6cf", relief="solid", height=5)
+        self.txt_guide_preview.pack(side="bottom", fill="x", pady=(10, 0))
+        self.txt_guide_preview.insert("1.0", "💡 點擊上方的任務清單，這裡會「垂直顯示」完整的多行菁英條件...")
+        self.txt_guide_preview.config(state="disabled")
+        
+        self.tree_guides = ttk.Treeview(tf, columns=("name", "elite", "time"), show="headings", selectmode="extended")
+        self.tree_guides.heading("name", text="任務名稱")
+        self.tree_guides.heading("elite", text="菁英條件 (預覽)")
+        self.tree_guides.heading("time", text="更新時間")
+        
+        self.tree_guides.column("name", width=200, anchor="w", stretch=False)
+        self.tree_guides.column("elite", width=550, anchor="w", stretch=True)
+        self.tree_guides.column("time", width=140, anchor="center", stretch=False)
+        
+        sb = ttk.Scrollbar(tf, orient="vertical", command=self.tree_guides.yview)
+        self.tree_guides.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self.tree_guides.pack(side="left", fill="both", expand=True)
+        
+        # 🎯 綁定單擊顯示預覽，雙擊編輯
+        self.tree_guides.bind("<Double-1>", self.open_guide_edit_window)
+        self.tree_guides.bind("<<TreeviewSelect>>", self.on_guide_select)
+
+    def on_guide_select(self, event=None):
+        if not self.data or "guides" not in self.data: return
+        sel = self.tree_guides.selection()
+        self.txt_guide_preview.config(state="normal")
+        self.txt_guide_preview.delete("1.0", tk.END)
+        if not sel:
+            self.txt_guide_preview.insert("1.0", "💡 點擊上方的任務清單，這裡會「垂直顯示」完整的多行菁英條件...")
+        else:
+            idx = int(sel[0])
+            g = self.data["guides"][idx]
+            self.txt_guide_preview.insert("1.0", f"🎯 【{g.get('mission_name', '')}】菁英條件：\n{g.get('elite_conditions', '')}")
+        self.txt_guide_preview.config(state="disabled")
+
+    def refresh_guides_table(self):
+        if hasattr(self, 'tree_guides') and self.tree_guides.winfo_exists():
+            for i in self.tree_guides.get_children(): self.tree_guides.delete(i)
+            if self.data and "guides" in self.data:
+                for idx, g in enumerate(self.data["guides"]): 
+                    elite_display = g.get("elite_conditions", "").replace("\n", "  /  ")
+                    self.tree_guides.insert("", "end", iid=str(idx), values=(g.get("mission_name", ""), elite_display, g.get("updated_at", "")))
+            self.on_guide_select()
+
+    def add_guide(self):
+        if not self.data: return
+        n = self.ent_guide_name.get().strip()
+        el = self.ent_guide_elite.get("1.0", tk.END).strip()
+        
+        if not n: return messagebox.showwarning("提示", "請輸入任務名稱！")
+        
+        self.data.setdefault("guides", []).append({
+            "mission_name": n, 
+            "elite_conditions": el, 
+            "created_at": time.strftime('%Y-%m-%d %H:%M'), 
+            "updated_at": time.strftime('%Y-%m-%d %H:%M')
+        })
+        save_data(self.all_data)
+        self.log_action(f"📚 新增任務：【{n}】")
+        
+        self.ent_guide_name.delete(0, tk.END)
+        self.ent_guide_elite.delete("1.0", tk.END)
+        self.refresh_guides_table()
+        self.show_toast_progress("📚 任務已儲存！")
+        self.ent_guide_name.focus()
+        
+    def delete_guide(self):
+        if not self.data or "guides" not in self.data: return
+        sel = self.tree_guides.selection()
+        if not sel: return messagebox.showwarning("提示", "請先點選要刪除的任務！")
+        if messagebox.askyesno("刪除", "確定要刪除選取的任務嗎？"):
+            for i in sorted([int(s) for s in sel], reverse=True): 
+                del self.data["guides"][i]
+            save_data(self.all_data)
+            self.refresh_guides_table()
+            self.show_toast_progress("🗑️ 任務已刪除")
+
+    def open_guide_edit_window(self, event=None):
+        # 🎯 終極防呆：如果滑鼠點擊的位置「沒有選中任何行(例如空白處)」，就直接返回，不彈出視窗
+        if event and not self.tree_guides.identify_row(event.y): 
+            return
+            
+        if self.check_win('guide_edit_window'): return
+        if not self.data or "guides" not in self.data: return
+        sel = self.tree_guides.selection()
+        if not sel or len(sel) > 1: return messagebox.showwarning("提示", "請單選一筆編輯！")
+        
+        idx = int(sel[0])
+        g = self.data["guides"][idx]
+        self.guide_edit_window = win = tk.Toplevel(self.root)
+        win.title("編輯任務")
+        self.center_toplevel_window(win, 450, 350)
+        win.configure(bg=COLOR_CARD_BG)
+        
+        tk.Label(win, text="任務名稱:", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).pack(pady=(15,2))
+        en = tk.Entry(win, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=35)
+        en.insert(0, g.get('mission_name', ''))
+        en.pack()
+        en.focus()
+        apply_focus_highlight(en)
+        
+        tk.Label(win, text="菁英條件 (可多行):", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).pack(pady=(10,2))
+        ee = tk.Text(win, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=35, height=6)
+        ee.insert("1.0", g.get('elite_conditions', ''))
+        ee.pack()
+        apply_focus_highlight(ee)
+        
+        def save(e=None): 
+            g.update({
+                'mission_name': en.get().strip(), 
+                'elite_conditions': ee.get("1.0", tk.END).strip(), 
+                'updated_at': time.strftime('%Y-%m-%d %H:%M')
+            })
+            save_data(self.all_data)
+            self.refresh_guides_table()
+            win.destroy()
+            self.show_toast_progress("✅ 修改成功！")
+            
+        bf = tk.Frame(win, bg=COLOR_CARD_BG)
+        bf.pack(fill="x", padx=45, pady=20)
+        ttk.Button(bf, text="儲存", command=save, style="Success.TButton").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4)
+        ttk.Button(bf, text="取消", command=win.destroy, style="Secondary.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
+
 
 if __name__ == "__main__":
     try:
