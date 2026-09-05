@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_KEYBOARD = False
 
-APP_VERSION = "1.8.5"
+APP_VERSION = "1.8.9"
 DATA_FILE = "gta5_garage_data.json"
 
 ACQUIRE_OPTIONS = ["購買獲得", "任務獲得", "生涯成就", "賭場轉盤", "搶劫獲得", "車友會", "其他備註"]
@@ -674,11 +674,30 @@ class GTAGarageApp:
             m, s, ms = int(self.elapsed_time // 60), int(self.elapsed_time % 60), int((self.elapsed_time * 10) % 10)
             self.lbl_sw.config(text=f"{m:02d}:{s:02d}.{ms}")
 
+    def auto_scroll_to_newest(self, tab_name):
+        try:
+            def focus_and_select(tree):
+                c = tree.get_children()
+                if c:
+                    tree.selection_set(c[-1])  # 🌟 自動反白選取最後一筆
+                    tree.focus(c[-1])          # 🌟 將系統焦點對準它
+                    tree.see(c[-1])            # 🌟 確保畫面滾動到最底部
+                    
+            if "車輛" in tab_name and hasattr(self, 'tree_vehicles'): focus_and_select(self.tree_vehicles)
+            elif "非個人" in tab_name and hasattr(self, 'tree_non_personal'): focus_and_select(self.tree_non_personal)
+            elif "特殊載具" in tab_name and hasattr(self, 'tree_special'): focus_and_select(self.tree_special)
+            elif "機庫" in tab_name and hasattr(self, 'tv_hangar_vh'): focus_and_select(self.tv_hangar_vh)
+            elif "願望" in tab_name and hasattr(self, 'tree_wishlist'): focus_and_select(self.tree_wishlist)
+            elif "攻略" in tab_name and hasattr(self, 'tree_guides'): focus_and_select(self.tree_guides)
+            elif "日誌" in tab_name and hasattr(self, 'text_logs'): self.text_logs.see("1.0")
+        except: pass
+
     def on_tab_changed(self, event=None):
         sid = self.notebook.select()
         if not sid: return
         t = self.notebook.tab(sid, "text").strip()
         if "統計" in t: self.refresh_statistics()
+        self.auto_scroll_to_newest(t) # 🌟 觸發自動聚焦最新資料
         
         if hasattr(self, 'menubar'):
             # 🎯 登入防護：未登入時全面鎖定所有工具列
@@ -1098,49 +1117,42 @@ class GTAGarageApp:
         if not hasattr(self, 'text_bulletin') or not self.text_bulletin.winfo_exists(): return
         cl = f"""==================================================
 【GTAV 資產管理系統 - 開發與重大更新日誌】
-🌟 目前版本：V{APP_VERSION} (終極完美合併版)
+🌟 目前版本：V{APP_VERSION} (極致體驗升級版)
 📅 更新日期：2026-09
 
 ==================================================
-【 🚀 近期重大更新 (V1.7.0 ~ V1.8.2) 】
+【 🚀 近期重大更新 (V1.8.0 ~ V1.8.6) 】
 ==================================================
-🔹 V1.8.2 - 歷史日誌補完計畫
-  • [新增] 完整建檔系統開發歷史紀錄。
-  • [優化] 系統公告板支援滾動長文與動態版本號追蹤。
+🔹 V1.8.6 - 全域分頁自動聚焦
+  • [新增] 切換任何頁面時，清單將自動平滑滾動至最底部的最新一筆資料。
+  • [優化] 操作日誌智慧反向聚焦，確保永遠優先顯示最新的操作紀錄。
 
-🔹 V1.8.0 ~ V1.8.1 - 介面強迫症完美對齊
-  • [修復] Windows 底層 Emoji (🛡️、🗑️) 寬度渲染導致的選單內縮 Bug。
+🔹 V1.8.3 ~ V1.8.5 - 體驗優化與防呆保護機制
+  • [新增] 分頁列快捷操作：對著上方分頁標籤點擊「右鍵」可快速將其隱藏。
+  • [防護] 全域設定「自動備份資料」加入防手滑二次確認警告，保護存檔安全。
+  • [淨化] 移除車庫選單內冗餘的舊版機庫快捷鍵，維持資料庫最高純粹度。
+
+🔹 V1.8.0 ~ V1.8.2 - 歷史建檔與排版完美對齊
+  • [新增] 系統公告板完整建檔從 V1.0 到最新版本的血汗開發歷史。
+  • [修復] 根治 Windows 底層 Emoji (🛡️、🗑️) 寬度渲染導致的介面內縮 Bug。
   • [優化] 右鍵智慧選單圖示全面標準化 (❌、📝、📌、🔒)，達成 100% 垂直對齊。
-  • [優化] 設定介面「自動備份資料」對齊修復，替換為「🔄」符號。
 
-🔹 V1.7.0 ~ V1.7.6 - ✈️ 獨立機庫空間管理系統上線
+==================================================
+【 ✈️ 機庫系統大型擴展 (V1.7.0 ~ V1.7.6) 】
+==================================================
   • [新增] 打造全新「✈️ 機庫管理」專屬大分頁，資料庫與一般車輛徹底分離。
   • [新增] 內建官方 5 大機庫地產圖鑑，支援「一鍵購買解鎖」。
   • [優化] 機庫採用「雙拼空間調度佈局」，左側機庫清單連動右側專屬機隊。
-  • [防護] 嚴密登入安全鎖，未登入時機庫資料強制隱藏；並深度掛載至全域設定。
+  • [防護] 嚴密登入安全鎖，未登入時機庫資料強制隱藏，並深度掛載至全域設定。
 
 ==================================================
-【 🛠️ 歷史核心更新 (V1.0.0 ~ V1.6.8) 】
+【 🛠️ 歷史核心更新回顧 (V1.0.0 ~ V1.6.8) 】
 ==================================================
-🔹 V1.6.8 - 核心架構與效能大升級
   • [重構] 徹底根治陣列錯位與閃退問題，系統穩定度大幅提升。
   • [新增] 獨立出全新的「🏠 車庫管理」彈出式視窗，告別擁擠的舊版面。
-  • [優化] 全域快捷鍵大升級，全面支援 Enter 鍵無縫操作。
-
-🔹 V1.5.0 - 攻略筆記與右鍵智慧選單
   • [新增] 導入「📚 攻略筆記」極簡全螢幕模式，支援多行菁英條件預覽。
-  • [新增] 表格清單全面實裝「🖱️ 右鍵智慧選單」，告別繁瑣的操作按鈕。
-
-🔹 V1.3.0 - 資料庫安全與跨角備份
-  • [新增] 手動備份升級為「單一角色」獨立打包機制。
-  • [新增] 支援「跨角色繼承轉移」，可自由將備份檔匯入至其他角色 ID。
-
-🔹 V1.2.0 - 任務碼錶與防呆機制
+  • [新增] 手動備份升級為「單一角色」，並支援「跨角色繼承轉移」。
   • [新增] 內建「⏱️ 任務碼錶工具」，支援正向計時與自訂倒數功能。
-  • [防護] 導入防止程式重複開啟的 Mutex 與 Port 雙重防護機制。
-
-🔹 V1.0.0 - 系統正式上線
-  • [建置] GTAV 資產管理系統 V1.0 誕生，奠定車輛、特殊載具管理基礎。
 =================================================="""
         self.text_bulletin.config(state="normal"); self.text_bulletin.delete("1.0", tk.END); self.text_bulletin.insert("1.0", cl); self.text_bulletin.config(state="disabled")
 
@@ -1459,7 +1471,7 @@ class GTAGarageApp:
             if c.get("pinned", False): dn = "📌 " + dn
             vs = ("☑" if i in getattr(self, 'checked_indices', set()) else "☐", dn, c["garage"], c.get("v_type", ""), c.get("acquire", ""), f"$ {int(c.get('price', 0)):,}" if c.get("price") else "$ 0", c.get("upgraded", ""), c.get("count", 1), c.get("notes", ""))
             isp = c.get("v_type", "") in ["非個人載具", "帕格薩斯"]; tt = self.tree_non_personal if isp and hasattr(self, 'tree_non_personal') else self.tree_vehicles; tse = nn if isp else nm; tse.add(iid)
-            if iid in (en if isp else em): tt.item(iid, values=vs)
+            if iid in (en if isp else em): tt.item(iid, values=vs); tt.move(iid, "", "end")
             else: tt.insert("", "end", iid=iid, values=vs)
         for iid in em - nm: self.tree_vehicles.delete(iid)
         if hasattr(self, 'tree_non_personal'):
@@ -1602,7 +1614,7 @@ class GTAGarageApp:
         t = self.get_active_tree(event); i = t.identify_row(event.y)
         if i: 
             if i not in t.selection(): t.selection_set(i)
-            self.vehicle_popup_menu.delete(0, tk.END); self.vehicle_popup_menu.add_command(label="📝 編輯資產", command=lambda: self.open_edit_window(event)); self.vehicle_popup_menu.add_separator(); self.vehicle_popup_menu.add_command(label="📌 置頂/取消置頂", command=lambda: self.toggle_pin_vehicle(event)); self.vehicle_popup_menu.add_command(label="🔒 檔案鎖定/解鎖", command=lambda: self.toggle_lock_vehicle(event)); self.vehicle_popup_menu.add_separator(); self.vehicle_popup_menu.add_command(label="❌ 刪除資產", command=lambda: self.delete_vehicle(event)); self.vehicle_popup_menu.post(event.x_root, event.y_root)
+            self.vehicle_popup_menu.delete(0, tk.END); self.vehicle_popup_menu.add_command(label="📝 編輯資產", command=self.open_edit_window); self.vehicle_popup_menu.add_separator(); self.vehicle_popup_menu.add_command(label="📌 置頂/取消置頂", command=self.toggle_pin_vehicle); self.vehicle_popup_menu.add_command(label="🔒 檔案鎖定/解鎖", command=self.toggle_lock_vehicle); self.vehicle_popup_menu.add_separator(); self.vehicle_popup_menu.add_command(label="❌ 刪除資產", command=self.delete_vehicle); self.vehicle_popup_menu.post(event.x_root, event.y_root)
 
     def open_batch_import_window(self):
         if self.check_win('import_window'): return
@@ -1750,9 +1762,15 @@ class GTAGarageApp:
     def refresh_special_table(self):
         for i in self.tree_special.get_children(): self.tree_special.delete(i)
         if not self.data: return
-        for i, m in enumerate(self.data.get("special_vehicles", [])):
+        
+        # 🌟 讓特殊載具也支援置頂排序
+        ds = list(enumerate(self.data.get("special_vehicles", [])))
+        pi = [(i, m) for i, m in ds if m.get("pinned", False)]
+        ni = [(i, m) for i, m in ds if not m.get("pinned", False)]
+        
+        for i, m in pi + ni:
             dn = ("🔒 " if m.get("locked") else "") + ("📌 " if m.get("pinned") else "") + m["name"]
-            self.tree_special.insert("", "end", iid=str(i), values=(dn, m.get("location", "未分類"), m.get("inner_vehicle", "") or "")) 
+            self.tree_special.insert("", "end", iid=str(i), values=(dn, m.get("location", "未分類"), m.get("inner_vehicle", "") or ""))
 
     def toggle_pin_special(self):
         if not self.data or not self.tree_special.selection(): return
