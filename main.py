@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_KEYBOARD = False
 
-APP_VERSION = "1.8.9"
+APP_VERSION = "1.9.0"
 DATA_FILE = "gta5_garage_data.json"
 
 ACQUIRE_OPTIONS = ["購買獲得", "任務獲得", "生涯成就", "賭場轉盤", "搶劫獲得", "車友會", "其他備註"]
@@ -2395,6 +2395,13 @@ class GTAGarageApp:
         ttk.Button(bf, text="取消", command=win.destroy, style="Secondary.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
 
 if __name__ == "__main__":
+    import sys
+    if "--from-launcher" not in sys.argv:
+        import tkinter as tk
+        from tkinter import messagebox
+        _r = tk.Tk(); _r.withdraw()
+        messagebox.showerror("⛔ 安全防護攔截", "為確保資料庫安全與版本同步，禁止直接啟動主程式！\n\n請務必透過您的「GTAV 專屬登入器 (Launcher)」來開啟本系統。")
+        _r.destroy(); sys.exit(0)
     try:
         import ctypes
         if ctypes.windll.kernel32.CreateMutexW(None, False, "GTA_Garage_App_Single_Instance_Mutex") and ctypes.windll.kernel32.GetLastError() == 183:
