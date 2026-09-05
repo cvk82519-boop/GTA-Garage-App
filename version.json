@@ -1,8 +1,8 @@
 {
-  "version": "1.6.8",
+  "version": "1.8.5",
   "script_url": "https://raw.githubusercontent.com/cvk82519-boop/GTA-Garage-App/refs/heads/main/main.py",
   "changelog": [
-    "🚀 核心升級：系統正式推進至 V1.6.8，徹底根治陣列錯位問題。",
+    "🚀 核心升級：系統正式推進至 V1.8.5，徹底根治陣列錯位問題。",
     "🏠 獨立車庫：新增車庫功能移至上方「車庫 (G)」選單，升級為精緻彈出式視窗。",
     "⌨️ 極致操作：全域快捷鍵大升級！全面支援「Enter 鍵」一鍵儲存。",
     "📂 跨角備份：手動備份升級為「單一角色」，並支援「跨角色繼承轉移」。",
