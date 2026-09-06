@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_KEYBOARD = False
 
-APP_VERSION = "1.9.0"
+APP_VERSION = "1.10.2"
 DATA_FILE = "gta5_garage_data.json"
 
 ACQUIRE_OPTIONS = ["購買獲得", "任務獲得", "生涯成就", "賭場轉盤", "搶劫獲得", "車友會", "其他備註"]
@@ -129,7 +129,7 @@ class GTAGarageApp:
         btn_colors = {"Success": ("#4CAF50", "#45a049"), "Danger": ("#e74c3c", "#d32f2f"), "Primary": ("#3498db", "#1976D2"), "Warning": ("#F39C12", "#F57C00"), "Purple": ("#9b59b6", "#8e44ad"), "Pink": ("#e91e63", "#c2185b"), "Secondary": ("#555555", "#424242"), "Dark": ("#333333", "#111111")}
         for name, (bg, active_bg) in btn_colors.items():
             self.style.configure(f"{name}.TButton", background=bg, foreground="white", bordercolor=bg, lightcolor=bg, darkcolor=bg)
-            self.style.map(f"{name}.TButton", background=[("active", active_bg), ("pressed", active_bg)], foreground=[("active", "white")])
+            self.style.map(f"{name}.TButton", background=[("disabled", "#424242"), ("active", active_bg), ("pressed", active_bg)], foreground=[("disabled", "#777777"), ("active", "white")])
         
         save_data(self.all_data) 
         self.current_id = ""; self.data = None; self.checked_indices = set()
@@ -512,6 +512,8 @@ class GTAGarageApp:
         sm.add_command(label="💾 手動備份資料 (Backup)", command=self.backup_data)
         sm.add_command(label="📂 載入備份還原 (Restore)", command=self.restore_data)
         sm.add_command(label="📥 匯出資料為 CSV (Export)", command=self.export_csv)
+        sm.add_separator()
+        sm.add_command(label="⚠️ 清除角色所有數據 (初始化)", command=self.clear_character_data)
         self.menubar.add_cascade(label="安全 (S)", menu=sm)
         
         self.root.config(menu=self.menubar)
@@ -675,21 +677,45 @@ class GTAGarageApp:
             self.lbl_sw.config(text=f"{m:02d}:{s:02d}.{ms}")
 
     def auto_scroll_to_newest(self, tab_name):
+        # 🛡️ V1.10.1 分頁絕對防護鎖 (修復變數抓取)
+        # 🌟 系統正確的帳號變數名稱是 current_id！
+        acc = getattr(self, 'current_id', "")
+        tab_str = str(tab_name)
+        
+        if not acc and "帳號" not in tab_str and "公告" not in tab_str:
+            # 尋找底層 Notebook 元件並強制切換回「帳號管理」
+            def find_nb(w):
+                if hasattr(w, 'tabs') and callable(getattr(w, 'tabs')): return w
+                for c in w.winfo_children():
+                    res = find_nb(c)
+                    if res: return res
+                return None
+            nb = find_nb(self.root)
+            if nb:
+                for tid in nb.tabs():
+                    if "帳號" in nb.tab(tid, "text"):
+                        nb.select(tid)
+                        break
+            from tkinter import messagebox
+            messagebox.showwarning("⛔ 存取攔截", "尚未登入！\n請先於「帳號管理」登入或建立角色，才能解鎖資產庫。", parent=self.root)
+            return
+
+        # 以下為原本正常的選取與捲動邏輯
         try:
             def focus_and_select(tree):
                 c = tree.get_children()
                 if c:
-                    tree.selection_set(c[-1])  # 🌟 自動反白選取最後一筆
-                    tree.focus(c[-1])          # 🌟 將系統焦點對準它
-                    tree.see(c[-1])            # 🌟 確保畫面滾動到最底部
+                    tree.selection_set(c[-1])
+                    tree.focus(c[-1])
+                    tree.see(c[-1])
                     
-            if "車輛" in tab_name and hasattr(self, 'tree_vehicles'): focus_and_select(self.tree_vehicles)
-            elif "非個人" in tab_name and hasattr(self, 'tree_non_personal'): focus_and_select(self.tree_non_personal)
-            elif "特殊載具" in tab_name and hasattr(self, 'tree_special'): focus_and_select(self.tree_special)
-            elif "機庫" in tab_name and hasattr(self, 'tv_hangar_vh'): focus_and_select(self.tv_hangar_vh)
-            elif "願望" in tab_name and hasattr(self, 'tree_wishlist'): focus_and_select(self.tree_wishlist)
-            elif "攻略" in tab_name and hasattr(self, 'tree_guides'): focus_and_select(self.tree_guides)
-            elif "日誌" in tab_name and hasattr(self, 'text_logs'): self.text_logs.see("1.0")
+            if "車輛" in tab_str and hasattr(self, 'tree_vehicles'): focus_and_select(self.tree_vehicles)
+            elif "非個人" in tab_str and hasattr(self, 'tree_non_personal'): focus_and_select(self.tree_non_personal)
+            elif "特殊載具" in tab_str and hasattr(self, 'tree_special'): focus_and_select(self.tree_special)
+            elif "機庫" in tab_str and hasattr(self, 'tv_hangar_vh'): focus_and_select(self.tv_hangar_vh)
+            elif "願望" in tab_str and hasattr(self, 'tree_wishlist'): focus_and_select(self.tree_wishlist)
+            elif "攻略" in tab_str and hasattr(self, 'tree_guides'): focus_and_select(self.tree_guides)
+            elif "日誌" in tab_str and hasattr(self, 'text_logs'): self.text_logs.see("1.0")
         except: pass
 
     def on_tab_changed(self, event=None):
@@ -704,6 +730,7 @@ class GTAGarageApp:
             if not getattr(self, 'current_id', None):
                 try: 
                     self.menubar.entryconfig("任務 (M)", state="disabled")
+                    self.menubar.entryconfig("車庫 (G)", state="disabled")
                     self.menubar.entryconfig("載具 (V)", state="disabled")
                     self.menubar.entryconfig("安全 (S)", state="disabled")
                     self.menubar.entryconfig("系統工具 (T)", state="disabled")
@@ -712,6 +739,7 @@ class GTAGarageApp:
             else:
                 try:
                     self.menubar.entryconfig("任務 (M)", state="normal")
+                    self.menubar.entryconfig("車庫 (G)", state="normal")
                     self.menubar.entryconfig("安全 (S)", state="normal")
                     self.menubar.entryconfig("系統工具 (T)", state="normal")
                 except: pass
@@ -991,7 +1019,79 @@ class GTAGarageApp:
         else:
             messagebox.showinfo("提示", "此為系統核心分頁，不可隱藏！")
 
+    # ==========================
+    # ⚠️ 角色數據初始化 (清除) 系統
+    # ==========================
+    def clear_character_data(self):
+        if not getattr(self, 'data', None):
+            return messagebox.showwarning("提示", "請先登入帳號！", parent=self.root)
+            
+        confirm1 = messagebox.askyesno("⚠️ 嚴重警告", "您即將永久清除「當前登入角色」的「所有」資產與紀錄！\n\n此操作等同於角色初始化，清除後將無法復原！\n您確定要繼續嗎？", parent=self.root)
+        if not confirm1: return
+        
+        from tkinter import simpledialog
+        confirm2 = simpledialog.askstring("⚠️ 最終防線", "為防止誤刪，請輸入「確認清除」四個字以執行初始化：", parent=self.root)
+        
+        if confirm2 != "確認清除":
+            if confirm2 is not None: messagebox.showinfo("提示", "口令輸入不符，已取消清除動作。", parent=self.root)
+            return
+            
+        # 🌟 駭客級原地掏空資料庫
+        preserved_settings = self.data.get("app_settings", {})
+        self.data.clear()
+        self.data.update({
+            "vehicles": [], "garages": [], "special_vehicles": [], 
+            "hangar_vehicles": [], "wishlist": [], "guides": [], 
+            "logs": [], "garage_limits": {}, "app_settings": preserved_settings
+        })
+        
+        # 💥 物理級強制清空所有畫面 (針對所有已知的樹狀表格，直接暴破刪除)
+        trees = ['tree_vehicles', 'tree_non_personal', 'tree_special', 'tv_hangar_vh', 'tree_wishlist', 'tree_guides']
+        for t_name in trees:
+            if hasattr(self, t_name):
+                tree = getattr(self, t_name)
+                for item in tree.get_children():
+                    tree.delete(item)
+                    
+        # 💥 強制清空操作日誌畫面
+        if hasattr(self, 'text_logs'): 
+            self.text_logs.config(state="normal")
+            self.text_logs.delete("1.0", tk.END)
+            self.text_logs.config(state="disabled")
+            
+        # 儲存到硬碟
+        try:
+            if hasattr(self, 'all_data'): save_data(self.all_data)
+        except: pass
+        
+        # 寫入第一筆全新日誌
+        if hasattr(self, 'log_action'): self.log_action("🗑️ 系統操作", "已徹底清除當前角色的所有數據。")
+        
+        # 呼叫正常的刷新 (負責重置統計資料、下拉選單等細節)
+        for m in ['refresh_garage_table', 'refresh_vehicle_table', 'refresh_special_table', 'refresh_hangar_table', 'refresh_wishlist_table', 'refresh_guide_table', 'refresh_statistics', 'update_garage_comboboxes']:
+            if hasattr(self, m): getattr(self, m)()
+            
+        # 🔄 強制系統立刻重繪畫面
+        self.root.update()
+            
+        messagebox.showinfo("✅ 清除成功", "資料與畫面已瞬間同步清空！", parent=self.root)
+
+    def _inject_wipe_menu(self):
+        """🌟 智慧選單掛載器：自動尋找「安全」選單並掛上按鈕"""
+        try:
+            if hasattr(self, '_wipe_menu_injected'): return
+            self._wipe_menu_injected = True
+            mb = self.root.nametowidget(self.root.cget('menu'))
+            for i in range(mb.index('end') + 1):
+                if "安全" in mb.entrycget(i, 'label'):
+                    sm = self.root.nametowidget(mb.entrycget(i, 'menu'))
+                    sm.add_separator()
+                    sm.add_command(label="⚠️ 清除角色所有數據 (初始化)", command=self.clear_character_data)
+                    break
+        except: pass
+
     def check_login_status(self):
+        self._inject_wipe_menu()
         is_l = bool(self.current_id and self.current_id in self.all_data["profiles"])
         if hasattr(self, 'lbl_current_user'):
             file_path = os.path.abspath(DATA_FILE)
@@ -1121,38 +1221,27 @@ class GTAGarageApp:
 📅 更新日期：2026-09
 
 ==================================================
-【 🚀 近期重大更新 (V1.8.0 ~ V1.8.6) 】
+【 🚀 近期重大更新 (V1.8.7 ~ V1.9.1) 】
 ==================================================
-🔹 V1.8.6 - 全域分頁自動聚焦
-  • [新增] 切換任何頁面時，清單將自動平滑滾動至最底部的最新一筆資料。
-  • [優化] 操作日誌智慧反向聚焦，確保永遠優先顯示最新的操作紀錄。
+🔹 V1.9.1 - 角色數據初始化系統
+  • [新增] 於「安全 (S)」選單加入「清除角色所有數據」功能。
+  • [防護] 導入「雙重防呆機制」，要求輸入角色名稱進行最終確認，確保資料安全。
 
-🔹 V1.8.3 ~ V1.8.5 - 體驗優化與防呆保護機制
+🔹 V1.9.0 - 啟動器專屬安全防護鎖 (Launcher-Only)
+  • [防護] 封印主程式直接執行權限，強制要求帶有專屬鑰匙的登入器啟動。
+  • [優化] 登入器升級為動態版面，解決按鈕變形問題並恢復自動修復功能。
+
+🔹 V1.8.7 ~ V1.8.9 - 全域自動選取與置頂修復
+  • [新增] 切換分頁時，不僅自動滾動，更會「直接選取」最新一筆資料，效率點滿。
+  • [修復] 根治右鍵選單靜默失效 Bug，並讓置頂載具真正推至清單最底端。
+
+==================================================
+【 ⚙️ 介面優化與機庫系統 (V1.7.0 ~ V1.8.6) 】
+==================================================
   • [新增] 分頁列快捷操作：對著上方分頁標籤點擊「右鍵」可快速將其隱藏。
   • [防護] 全域設定「自動備份資料」加入防手滑二次確認警告，保護存檔安全。
-  • [淨化] 移除車庫選單內冗餘的舊版機庫快捷鍵，維持資料庫最高純粹度。
-
-🔹 V1.8.0 ~ V1.8.2 - 歷史建檔與排版完美對齊
-  • [新增] 系統公告板完整建檔從 V1.0 到最新版本的血汗開發歷史。
-  • [修復] 根治 Windows 底層 Emoji (🛡️、🗑️) 寬度渲染導致的介面內縮 Bug。
-  • [優化] 右鍵智慧選單圖示全面標準化 (❌、📝、📌、🔒)，達成 100% 垂直對齊。
-
-==================================================
-【 ✈️ 機庫系統大型擴展 (V1.7.0 ~ V1.7.6) 】
-==================================================
-  • [新增] 打造全新「✈️ 機庫管理」專屬大分頁，資料庫與一般車輛徹底分離。
-  • [新增] 內建官方 5 大機庫地產圖鑑，支援「一鍵購買解鎖」。
-  • [優化] 機庫採用「雙拼空間調度佈局」，左側機庫清單連動右側專屬機隊。
-  • [防護] 嚴密登入安全鎖，未登入時機庫資料強制隱藏，並深度掛載至全域設定。
-
-==================================================
-【 🛠️ 歷史核心更新回顧 (V1.0.0 ~ V1.6.8) 】
-==================================================
-  • [重構] 徹底根治陣列錯位與閃退問題，系統穩定度大幅提升。
-  • [新增] 獨立出全新的「🏠 車庫管理」彈出式視窗，告別擁擠的舊版面。
-  • [新增] 導入「📚 攻略筆記」極簡全螢幕模式，支援多行菁英條件預覽。
-  • [新增] 手動備份升級為「單一角色」，並支援「跨角色繼承轉移」。
-  • [新增] 內建「⏱️ 任務碼錶工具」，支援正向計時與自訂倒數功能。
+  • [修復] 根治 Windows Emoji 寬度渲染導致的介面內縮 Bug，選單 100% 對齊。
+  • [新增] 打造全新「✈️ 機庫管理」獨立分頁，內建官方 5 大機庫地產圖鑑。
 =================================================="""
         self.text_bulletin.config(state="normal"); self.text_bulletin.delete("1.0", tk.END); self.text_bulletin.insert("1.0", cl); self.text_bulletin.config(state="disabled")
 
