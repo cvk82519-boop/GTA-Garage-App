@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_KEYBOARD = False
 
-APP_VERSION = "1.12.0"
+APP_VERSION = "1.12.3"
 DATA_FILE = "gta5_garage_data.json"
 
 ACQUIRE_OPTIONS = ["購買獲得", "任務獲得", "生涯成就", "賭場轉盤", "搶劫獲得", "車友會", "其他備註"]
@@ -1166,7 +1166,7 @@ class GTAGarageApp:
         self.notebook.tab(self.tab_bulletin, state="normal"); self.notebook.tab(self.tab_account, state="normal")
         for k, t in [("tab_vehicles", self.tab_vehicles), ("tab_non_personal", self.tab_non_personal), ("tab_pegasus", getattr(self, "tab_pegasus", None)), ("tab_special", self.tab_special), ("tab_garages", self.tab_garages), ("tab_hangars", self.tab_hangars), ("tab_wishlist", self.tab_wishlist), ("tab_guides", self.tab_guides), ("tab_statistics", self.tab_statistics), ("tab_logs", self.tab_logs)]:
             self.notebook.tab(t, state="normal" if (is_l and s.get(k, True)) else "hidden")
-        self.update_garage_comboboxes(); self.update_acquire_comboboxes(); self.refresh_vehicle_tables(); self.refresh_special_table(); self.refresh_garage_table(); self.apply_settings(); self.on_tab_changed()
+        self.update_garage_comboboxes(); self.update_acquire_comboboxes(); self.apply_filters(); self.refresh_special_table(); self.refresh_garage_table(); self.apply_settings(); self.on_tab_changed()
         if is_l: self.refresh_bulletin_display(); self.refresh_logs_display(); self.refresh_wishlist_table(); self.refresh_guides_table(); self.update_checked_button_text()
         if is_l and self.notebook.select() and "統計" in self.notebook.tab(self.notebook.select(), "text"): self.refresh_statistics()
 
@@ -1427,7 +1427,7 @@ class GTAGarageApp:
             w = self.data["wishlist"][i]
             self.data["vehicles"].append({"name": w["name"], "garage": "未分類", "v_type": "", "acquire": "購買獲得", "price": w["price"], "upgraded": "未改滿", "count": 1, "notes": w["notes"], "locked": False, "pinned": False, "created_at": time.strftime('%Y-%m-%d %H:%M'), "updated_at": time.strftime('%Y-%m-%d %H:%M')})
             del self.data["wishlist"][i]; c += 1
-        save_data(self.all_data); self.log_action(f"🎉 願望達成：牽入 {c} 台夢想載具！"); self.refresh_wishlist_table(); self.refresh_vehicle_tables(); self.refresh_statistics(); messagebox.showinfo("🎉 恭喜！", f"成功移入 {c} 輛車！\n停放在【未分類】！"); self.notebook.select(self.tab_vehicles)
+        save_data(self.all_data); self.log_action(f"🎉 願望達成：牽入 {c} 台夢想載具！"); self.refresh_wishlist_table(); self.apply_filters(); self.refresh_statistics(); messagebox.showinfo("🎉 恭喜！", f"成功移入 {c} 輛車！\n停放在【未分類】！"); self.notebook.select(self.tab_vehicles)
 
     def update_checked_button_text(self):
         c = len(self.checked_indices) if hasattr(self, 'checked_indices') else 0
@@ -1469,35 +1469,121 @@ class GTAGarageApp:
     def check_duplicate_vehicles(self):
         if self.check_win('dup_window'): return
         if not self.data: return
+        
+        # 1. 讀取或初始化白名單
+        ignored = self.data.setdefault("app_settings", {}).setdefault("ignored_duplicates", [])
+        
         nm = defaultdict(list)
         for i, v in enumerate(self.data.get("vehicles", [])): nm[v["name"].strip().lower()].append(i)
+        
+        # 2. 判斷重複清單與未確認清單
         dup = {n: ind for n, ind in nm.items() if len(ind) > 1}
-        if not dup: return messagebox.showinfo("檢查", "✅ 無重複車輛。")
-        self.dup_window = win = tk.Toplevel(self.root); win.title("🔍 發現重複"); self.center_toplevel_window(win, 450, 500); win.configure(bg=COLOR_CARD_BG)
-        tk.Label(win, text=f"⚠️ 發現 {len(dup)} 組重複：", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#F39C12").pack(pady=(15, 5))
-        fl = tk.Frame(win, bg=COLOR_MAIN_BG); fl.pack(fill="both", expand=True, padx=25, pady=5); sb = ttk.Scrollbar(fl); sb.pack(side="right", fill="y")
-        lb = tk.Listbox(fl, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", yscrollcommand=sb.set, relief="solid", selectbackground="#4CAF50")
-        for n, ind in dup.items():
-            lb.insert(tk.END, f"▪ {self.data['vehicles'][ind[0]]['name']} (共 {len(ind)} 筆)")
-            lb.insert(tk.END, f"  📍 分佈: {', '.join([self.data['vehicles'][i]['garage'] for i in ind])[:27] + '...'}")
-            lb.insert(tk.END, "") 
-        lb.pack(side="left", fill="both", expand=True); sb.config(command=lb.yview)
-        def merge():
-            if not messagebox.askyesno("確認", "確定合併嗎？", parent=win): return
+        active_dup = {n: ind for n, ind in dup.items() if n not in ignored}
+        
+        if not dup: 
+            return messagebox.showinfo("檢查", "✅ 車庫內目前沒有任何重複車輛。")
+        if not active_dup:
+            msg = f"✅ 無新的重複車輛。\n\n(已隱藏 {len(dup) - len(active_dup)} 款允許重複的載具，若欲管理請於檢查視窗中點擊【重置白名單】)"
+            
+            # 若無新重複，但有隱藏清單，我們直接問他要不要重置，而不是直接擋下來
+            if messagebox.askyesno("檢查", msg + "\n\n要立即重置白名單並重新檢查所有重複車輛嗎？"):
+                ignored.clear()
+                self.data["app_settings"]["ignored_duplicates"] = ignored
+                save_data(self.all_data)
+                return self.check_duplicate_vehicles()
+            return
+
+        self.dup_window = win = tk.Toplevel(self.root)
+        win.title("🔍 重複載具管理")
+        self.center_toplevel_window(win, 650, 480)
+        win.configure(bg="#2d2d2d")
+        
+        tk.Label(win, text=f"⚠️ 發現 {len(active_dup)} 款未確認的重複載具：", font=("Microsoft JhengHei", 14, "bold"), bg="#2d2d2d", fg="#F39C12").pack(pady=(15, 5))
+        
+        # 🌟 升級為 Treeview 樹狀表格
+        tf = tk.Frame(win, bg="#212121")
+        tf.pack(fill="both", expand=True, padx=20, pady=5)
+        
+        cols = ("name", "count", "locations", "lower_name")
+        tv = ttk.Treeview(tf, columns=cols, show="headings", selectmode="extended")
+        tv.heading("name", text="載具名稱")
+        tv.heading("count", text="總數量")
+        tv.heading("locations", text="分佈位置")
+        tv.column("name", width=180, anchor="w")
+        tv.column("count", width=60, anchor="center")
+        tv.column("locations", width=350, anchor="w")
+        tv.column("lower_name", width=0, stretch=False) # 隱藏欄位，用來儲存轉小寫的 key
+        tv["displaycolumns"] = ("name", "count", "locations")
+        
+        sb = ttk.Scrollbar(tf, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        tv.pack(side="left", fill="both", expand=True)
+        
+        for n, ind in active_dup.items():
+            orig_name = self.data['vehicles'][ind[0]]['name']
+            locs = ", ".join([self.data['vehicles'][i]['garage'] for i in ind])
+            tv.insert("", "end", values=(orig_name, len(ind), locs, n))
+            
+        def merge_selected():
+            sel = tv.selection()
+            if not sel: return messagebox.showwarning("提示", "請先選擇要合併的項目！\n(支援 Ctrl 或 Shift 多選)", parent=win)
+            if not messagebox.askyesno("確認", f"確定要合併選取的 {len(sel)} 款重複載具嗎？\n(將集中數量並保留第一筆資料的改裝狀態)", parent=win): return
+            
             dl = []; c = 0
-            for n, ind in dup.items():
+            for item in sel:
+                n = tv.item(item, "values")[3]
+                ind = active_dup[n]
                 f_idx = ind[0]; ext = 0
                 ip = self.data["vehicles"][f_idx].get("garage") == "帕格薩斯" or self.data["vehicles"][f_idx].get("v_type") == "帕格薩斯"
                 for o_idx in ind[1:]:
                     if not ip: ext += int(self.data["vehicles"][o_idx].get("count", 1) or 1)
                     dl.append(o_idx); c += 1
-                if ip: self.data["vehicles"][f_idx]["count"] = 1; self.data["vehicles"][f_idx]["upgraded"] = "不可改裝"
-                else: self.data["vehicles"][f_idx]["count"] = int(self.data["vehicles"][f_idx].get("count", 1) or 1) + ext
+                if ip: 
+                    self.data["vehicles"][f_idx]["count"] = 1; self.data["vehicles"][f_idx]["upgraded"] = "不可改裝"
+                else: 
+                    self.data["vehicles"][f_idx]["count"] = int(self.data["vehicles"][f_idx].get("count", 1) or 1) + ext
                 self.data["vehicles"][f_idx]["updated_at"] = time.strftime('%Y-%m-%d %H:%M')
+                tv.delete(item) # 從畫面上移除
+                
             for i in sorted(dl, reverse=True): del self.data["vehicles"][i]
-            self.checked_indices.clear(); self.update_checked_button_text(); self.sync_special_from_vehicles(); save_data(self.all_data); self.refresh_vehicle_tables(); self.refresh_special_table(); self.refresh_garage_table(); self.show_toast_progress(f"✅ 合併 {c} 筆"); win.destroy()
-        bf = tk.Frame(win, bg=COLOR_CARD_BG); bf.pack(fill="x", padx=25, pady=15)
-        ttk.Button(bf, text="✨ 一鍵智能合併", command=merge, style="Primary.TButton").pack(side="left", expand=True, fill="x", padx=(0, 5), ipady=4); ttk.Button(bf, text="關閉", command=win.destroy, style="Secondary.TButton").pack(side="right", expand=True, fill="x", padx=(5, 0), ipady=4)
+            self.checked_indices.clear(); self.update_checked_button_text(); self.sync_special_from_vehicles()
+            save_data(self.all_data); self.apply_filters(); self.refresh_special_table(); self.refresh_garage_table(); self.refresh_statistics()
+            self.show_toast_progress(f"✅ 成功合併 {c} 筆重複資料")
+            if not tv.get_children(): win.destroy()
+
+        def ignore_selected():
+            sel = tv.selection()
+            if not sel: return messagebox.showwarning("提示", "請先選擇要允許重複的項目！\n(支援 Ctrl 或 Shift 多選)", parent=win)
+            
+            for item in sel:
+                n = tv.item(item, "values")[3]
+                if n not in ignored: ignored.append(n)
+                tv.delete(item) # 加入白名單後，直接從畫面上消失
+                
+            self.data["app_settings"]["ignored_duplicates"] = ignored
+            save_data(self.all_data)
+            self.show_toast_progress("👀 已加入允許重複白名單")
+            if not tv.get_children(): win.destroy()
+
+        def reset_ignored():
+            if not ignored: return messagebox.showinfo("提示", "目前沒有任何車輛在白名單中。", parent=win)
+            if messagebox.askyesno("確認", f"目前有 {len(ignored)} 款車輛被允許重複。\n確定要清空白名單，重新檢查所有重複項目嗎？", parent=win):
+                ignored.clear()
+                self.data["app_settings"]["ignored_duplicates"] = ignored
+                save_data(self.all_data)
+                win.destroy()
+                self.check_duplicate_vehicles() # 重新呼叫自己，展開所有隱藏車輛
+
+        bf = tk.Frame(win, bg="#2d2d2d")
+        bf.pack(fill="x", padx=20, pady=15)
+        
+        ttk.Button(bf, text="✨ 合併選取", command=merge_selected, style="Success.TButton").pack(side="left", padx=5, ipady=4)
+        ttk.Button(bf, text="👀 允許重複 (不再顯示)", command=ignore_selected, style="Warning.TButton").pack(side="left", padx=5, ipady=4)
+        
+        ttk.Button(bf, text="關閉", command=win.destroy, style="Secondary.TButton").pack(side="right", padx=5, ipady=4)
+        ttk.Button(bf, text="🔄 重置白名單", command=reset_ignored, style="Dark.TButton").pack(side="right", padx=5, ipady=4)
+
 
     def _setup_tree(self, tree):
         for col, text in {"check": "☑", "name": "車輛名稱", "garage": "存放位置", "vtype": "類型", "acquire": "取得方式", "price":"價值(GTA$)", "upgrade": "改裝", "count": "數量", "notes": "備註"}.items(): tree.heading(col, text=text)
@@ -1662,7 +1748,7 @@ class GTAGarageApp:
                     
                 self.sync_special_from_vehicles()
                 save_data(self.all_data)
-                self.refresh_vehicle_tables()
+                self.apply_filters()
                 self.refresh_special_table()
                 self.refresh_garage_table()
                 self.entry_name.delete(0, tk.END)
@@ -1703,7 +1789,7 @@ class GTAGarageApp:
         self.sync_special_from_vehicles()
         save_data(self.all_data)
         self.log_action(f"✅ 新增載具：【{name}】 (儲存至：{garage})")
-        self.refresh_vehicle_tables()
+        self.apply_filters()
         self.refresh_special_table()
         self.refresh_garage_table()
         self.refresh_statistics()
@@ -1763,7 +1849,7 @@ class GTAGarageApp:
 
     def reset_filters(self):
         if not self.data: return
-        self.entry_search.delete(0, tk.END); self.combo_garage_filter.set("全部"); self.checked_indices.clear(); self.update_checked_button_text(); self.refresh_vehicle_tables()
+        self.entry_search.delete(0, tk.END); self.combo_garage_filter.set("全部"); self.checked_indices.clear(); self.update_checked_button_text(); self.apply_filters()
 
     def show_vehicle_context_menu(self, event):
         if not self.data: return
@@ -1809,7 +1895,7 @@ class GTAGarageApp:
                 a += 1
             self.sync_special_from_vehicles()
             save_data(self.all_data)
-            self.refresh_vehicle_tables()
+            self.apply_filters()
             self.refresh_garage_table()
             self.refresh_statistics()
             self.show_toast_progress(f"✅ 成功批量匯入 {a} 筆載具")
@@ -1850,16 +1936,21 @@ class GTAGarageApp:
             clbl("數量:"); ec.insert(0, str(c.get('count', 1))); ec.pack()
             clbl("備註:"); eo.insert(0, c.get('notes', '')); eo.pack()
             def sv_sg(e=None):
+                new_g = cg.get()
+                if new_g != c.get('garage') and new_g not in ["未分類", "帕格薩斯"]:
+                    lim = self.data["garage_limits"].get(new_g, 10)
+                    if self.count_cars_in_garage(new_g) >= lim:
+                        return messagebox.showerror("位置已滿", f"【{new_g}】容量已滿！無法移入。", parent=win)
                 try: p = int(ep.get() or 0)
                 except: p = 0
                 try: ct = int(ec.get() or 1)
                 except: ct = 1
-                c.update({'name': en.get(), 'garage': cg.get(), 'v_type': cv.get(), 'acquire': ca.get(), 'price': p, 'upgraded': cu.get(), 'count': ct, 'notes': eo.get(), 'updated_at': time.strftime('%Y-%m-%d %H:%M')}); self.sync_special_from_vehicles(); save_data(self.all_data)
+                c.update({'name': en.get(), 'garage': new_g, 'v_type': cv.get(), 'acquire': ca.get(), 'price': p, 'upgraded': cu.get(), 'count': ct, 'notes': eo.get(), 'updated_at': time.strftime('%Y-%m-%d %H:%M')}); self.sync_special_from_vehicles(); save_data(self.all_data)
                 if pre_selected is not None: self.checked_indices.clear(); self.update_checked_button_text()
-                self.refresh_vehicle_tables(); self.refresh_garage_table(); self.refresh_special_table(); self.refresh_statistics(); win.destroy(); self.show_toast_progress("✅ 修改成功！")
+                self.apply_filters(); self.refresh_garage_table(); self.refresh_special_table(); self.refresh_statistics(); win.destroy(); self.show_toast_progress("✅ 修改成功！")
             def del_act():
                 if messagebox.askyesno("刪除", f"刪除選定的 1 筆？", parent=win):
-                    del self.data["vehicles"][idx]; self.checked_indices.discard(idx); self.update_checked_button_text(); self.sync_special_from_vehicles(); save_data(self.all_data); self.refresh_vehicle_tables(); self.refresh_garage_table(); self.refresh_special_table(); win.destroy()
+                    del self.data["vehicles"][idx]; self.checked_indices.discard(idx); self.update_checked_button_text(); self.sync_special_from_vehicles(); save_data(self.all_data); self.apply_filters(); self.refresh_garage_table(); self.refresh_special_table(); win.destroy()
             bf = tk.Frame(win, bg=COLOR_MAIN_BG); bf.pack(fill="x", padx=35, pady=15)
             ttk.Button(bf, text="儲存", command=sv_sg, style="Success.TButton").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4); ttk.Button(bf, text="❌ 刪除", command=del_act, style="Danger.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4); en.bind("<Return>", lambda e: cg.focus()); cg.bind("<Return>", lambda e: cv.focus()); cv.bind("<Return>", lambda e: ca.focus()); ca.bind("<Return>", lambda e: ep.focus()); ep.bind("<Return>", lambda e: cu.focus()); cu.bind("<Return>", lambda e: ec.focus()); ec.bind("<Return>", lambda e: eo.focus()); eo.bind("<Return>", sv_sg)
         else:
@@ -1871,15 +1962,23 @@ class GTAGarageApp:
             clbl("3. 改裝:"); cbu = ttk.Combobox(win, state="readonly", font=FONT_NORMAL, values=["[不修改]", "未改滿", "已改滿", "不可改裝"]); cbu.set("[不修改]"); cbu.pack(pady=3)
             def sv_b():
                 ct = time.strftime('%Y-%m-%d %H:%M')
+                new_g = cbg.get()
+                if new_g != "[不修改]" and new_g not in ["未分類", "帕格薩斯"]:
+                    moving_count = sum(1 for i in sel if self.data["vehicles"][int(i)]['garage'] != new_g)
+                    if moving_count > 0:
+                        lim = self.data["garage_limits"].get(new_g, 10)
+                        if (self.count_cars_in_garage(new_g) + moving_count) > lim:
+                            return messagebox.showerror("容量不足", f"【{new_g}】空間不足！無法移入 {moving_count} 輛車。", parent=win)
+                            
                 for i in sel:
                     ix = int(i)
-                    if cbg.get() != "[不修改]": self.data["vehicles"][ix]['garage'] = cbg.get()
+                    if new_g != "[不修改]": self.data["vehicles"][ix]['garage'] = new_g
                     if cbv.get() != "[不修改]": self.data["vehicles"][ix]['v_type'] = cbv.get()
                     if cbu.get() != "[不修改]": self.data["vehicles"][ix]['upgraded'] = cbu.get()
                     self.data["vehicles"][ix]['updated_at'] = ct
                 self.sync_special_from_vehicles(); save_data(self.all_data)
                 if pre_selected is not None: self.checked_indices.clear(); self.update_checked_button_text()
-                self.refresh_vehicle_tables(); self.refresh_garage_table(); self.refresh_special_table(); win.destroy(); self.show_toast_progress("✅ 批量完畢")
+                self.apply_filters(); self.refresh_garage_table(); self.refresh_special_table(); win.destroy(); self.show_toast_progress("✅ 批量完畢")
             ttk.Button(win, text="執行", command=sv_b, style="Primary.TButton").pack(fill="x", padx=35, pady=25, ipady=4); win.bind("<Return>", lambda e: sv_b())
 
     def setup_special_tab(self):
@@ -1913,7 +2012,7 @@ class GTAGarageApp:
         n, l, i = self.combo_spec_name.get().strip(), self.combo_spec_location.get().strip() or "未分類", self.combo_inner_car.get().strip()
         if not n: return
         self.data["special_vehicles"].append({"name": n, "location": l, "inner_vehicle": i if i != "無" else "", "can_store": self.var_can_store.get(), "locked": False, "pinned": False, "updated_at": time.strftime("%Y-%m-%d %H:%M")}) 
-        self.sync_vehicles_from_special(); save_data(self.all_data); self.refresh_special_table(); self.update_garage_comboboxes(); self.refresh_vehicle_tables(); self.combo_spec_name.set(""); self.combo_inner_car.set(""); self.var_can_store.set(False); self.on_main_spec_carrier_changed(); self.combo_spec_location.set("未分類"); self.show_toast_progress("🚁 建立成功！")
+        self.sync_vehicles_from_special(); save_data(self.all_data); self.refresh_special_table(); self.update_garage_comboboxes(); self.apply_filters(); self.combo_spec_name.set(""); self.combo_inner_car.set(""); self.var_can_store.set(False); self.on_main_spec_carrier_changed(); self.combo_spec_location.set("未分類"); self.show_toast_progress("🚁 建立成功！")
 
     def refresh_special_table(self):
         for i in self.tree_special.get_children(): self.tree_special.delete(i)
@@ -1972,7 +2071,7 @@ class GTAGarageApp:
             if nn != sv["name"]:
                 for v in self.data["vehicles"]:
                     if v.get("garage") == sv["name"]: v["garage"] = nn
-            self.data["special_vehicles"][i].update({"name": nn, "location": csl.get().strip() or "未分類", "can_store": ev.get(), "updated_at": time.strftime("%Y-%m-%d %H:%M")}); self.sync_vehicles_from_special(); save_data(self.all_data); self.refresh_vehicle_tables(); self.update_garage_comboboxes(); self.refresh_special_table(); win.destroy()
+            self.data["special_vehicles"][i].update({"name": nn, "location": csl.get().strip() or "未分類", "can_store": ev.get(), "updated_at": time.strftime("%Y-%m-%d %H:%M")}); self.sync_vehicles_from_special(); save_data(self.all_data); self.apply_filters(); self.update_garage_comboboxes(); self.refresh_special_table(); win.destroy()
         ttk.Button(win, text="儲存", command=save, style="Success.TButton").pack(fill="x", padx=35, pady=15, ipady=4); cn.bind("<Return>", lambda e: csl.focus()); csl.bind("<Return>", save)
 
     def setup_garages_tab(self):
@@ -2176,7 +2275,7 @@ class GTAGarageApp:
                 l = self.data["garage_limits"].get(d, 10); u = self.count_cars_in_garage(d)
                 if u + len(sai) > l: return messagebox.showerror("錯誤", f"【{d}】不足！", parent=win)
             for i in sai: self.data["vehicles"][i]["garage"] = d; self.data["vehicles"][i]["updated_at"] = time.strftime('%Y-%m-%d %H:%M')
-            self.sync_special_from_vehicles(); save_data(self.all_data); self.show_toast_progress(f"🚚 成功移動！"); self.refresh_garage_table(); self.refresh_vehicle_tables(); self.refresh_statistics(); win.destroy()
+            self.sync_special_from_vehicles(); save_data(self.all_data); self.show_toast_progress(f"🚚 成功移動！"); self.refresh_garage_table(); self.apply_filters(); self.refresh_statistics(); win.destroy()
         bf = tk.Frame(win, bg=COLOR_CARD_BG); bf.pack(pady=20); ttk.Button(bf, text="移動", command=cf, style="Primary.TButton").pack(side="left", padx=10, ipady=4); ttk.Button(bf, text="取消", command=win.destroy, style="Secondary.TButton").pack(side="right", padx=10, ipady=4)
 
     def open_garage_edit_window_by_name(self, old_name):
@@ -2211,7 +2310,7 @@ class GTAGarageApp:
                                 if s.get("location") == c: s["location"] = nc
                 bs = old_name.split(" - ", 1)[0]
                 if old_name == bs and nn != bs and bs in self.expanded_bases: self.expanded_bases.remove(bs); self.expanded_bases.add(nn)
-            save_data(self.all_data); self.refresh_garage_table(); self.refresh_vehicle_tables(); self.update_garage_comboboxes(); self.refresh_special_table(); win.destroy(); self.set_status(f"📝 更新 {nn} 成功。", "#3498db")
+            save_data(self.all_data); self.refresh_garage_table(); self.apply_filters(); self.update_garage_comboboxes(); self.refresh_special_table(); win.destroy(); self.set_status(f"📝 更新 {nn} 成功。", "#3498db")
         def dga(): self.delete_garage_by_name(old_name); win.destroy()
         bf = tk.Frame(win, bg=COLOR_MAIN_BG); bf.pack(fill="x", padx=35, pady=15); ttk.Button(bf, text="保存", command=sv, style="Success.TButton").pack(side="left", fill="x", expand=True, padx=(0, 5), ipady=4); ttk.Button(bf, text="❌ 刪除", command=dga, style="Danger.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
         en.bind("<Return>", lambda e: el.focus()); el.bind("<Return>", sv)
@@ -2292,7 +2391,7 @@ class GTAGarageApp:
             for s in self.data.get("special_vehicles", []):
                 if s.get("location") == og: s["location"] = ng
         if ob in self.expanded_bases: self.expanded_bases.remove(ob); self.expanded_bases.add(nb)
-        save_data(self.all_data); self.refresh_garage_table(); self.refresh_vehicle_tables(); self.update_garage_comboboxes(); self.refresh_special_table(); self.show_toast_progress(f"✅ 更名為：{nb}")
+        save_data(self.all_data); self.refresh_garage_table(); self.apply_filters(); self.update_garage_comboboxes(); self.refresh_special_table(); self.show_toast_progress(f"✅ 更名為：{nb}")
 
     def delete_entire_property(self, bn):
         rg = [g for g in self.data["garages"] if g == bn or g.startswith(bn + " - ")]
