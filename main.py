@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_KEYBOARD = False
 
-APP_VERSION = "1.12.3"
+APP_VERSION = "1.14.0"
 DATA_FILE = "gta5_garage_data.json"
 
 ACQUIRE_OPTIONS = ["購買獲得", "任務獲得", "生涯成就", "賭場轉盤", "搶劫獲得", "車友會", "其他備註"]
@@ -150,7 +150,7 @@ class GTAGarageApp:
             "🚁 帕格薩斯載具": getattr(self, 'tab_pegasus', None), 
             "🚁 特殊載具": getattr(self, 'tab_special', None), 
             "🏠 車庫管理": getattr(self, 'tab_garages', None), 
-            "✈️ 機庫管理": getattr(self, 'tab_hangars', None), 
+            "🛫 機庫管理": getattr(self, 'tab_hangars', None), 
             "🛒 購車願望清單": getattr(self, 'tab_wishlist', None), 
             "📚 攻略筆記": getattr(self, 'tab_guides', None), 
             "📊 統計資料": getattr(self, 'tab_statistics', None)
@@ -463,15 +463,32 @@ class GTAGarageApp:
     def on_app_closing(self):
         self.all_data.setdefault("app_config", {})["state"] = self.root.state()
         if self.root.state() == "normal": self.all_data["app_config"]["geometry"] = self.root.geometry()
-        with open(DATA_FILE, "w", encoding="utf-8") as f: json.dump(self.all_data, f, ensure_ascii=False, indent=4)
-        if self.data and self.data.get("app_settings", {}).get("auto_backup", True):
-            try:
-                if not os.path.exists("backups"): os.makedirs("backups")
-                shutil.copy(DATA_FILE, os.path.join("backups", f"gta_auto_backup_{self.current_id}_{time.strftime('%Y%m%d_%H%M%S')}.json"))
-                files = sorted(glob.glob(os.path.join("backups", f"gta_auto_backup_{self.current_id}_*.json")))
-                while len(files) > 5: os.remove(files[0]); files.pop(0)
-            except: pass
-        self.root.destroy(); sys.exit(0)
+        
+        # 1. 正常儲存全域總資料庫
+        with open(DATA_FILE, "w", encoding="utf-8") as f: 
+            json.dump(self.all_data, f, ensure_ascii=False, indent=4)
+            
+        # 2. 🌟 角色獨立自動備份
+        if getattr(self, 'current_id', None) and getattr(self, 'data', None):
+            if self.data.get("app_settings", {}).get("auto_backup", True):
+                try:
+                    if not os.path.exists("backups"): os.makedirs("backups")
+                    bk_path = os.path.join("backups", f"gta_auto_backup_{self.current_id}_{time.strftime('%Y%m%d_%H%M%S')}.json")
+                    
+                    # 只抽出自己的資料進行專屬存檔，絕不混入其他帳號！
+                    bk_data = {"profiles": {self.current_id: self.data}}
+                    with open(bk_path, "w", encoding="utf-8") as bk_f:
+                        json.dump(bk_data, bk_f, ensure_ascii=False, indent=4)
+                        
+                    # 維持備份數量上限 (預設保留 5 份)
+                    files = sorted(glob.glob(os.path.join("backups", f"gta_auto_backup_{self.current_id}_*.json")))
+                    while len(files) > 5: 
+                        os.remove(files[0])
+                        files.pop(0)
+                except: pass
+                
+        self.root.destroy()
+        sys.exit(0)
 
     def show_toast_progress(self, message="✅ 操作成功"):
         toast = tk.Toplevel(self.root); toast.overrideredirect(True); toast.attributes("-topmost", True); toast.configure(bg=COLOR_CARD_BG)
@@ -547,7 +564,7 @@ class GTAGarageApp:
         em.add_separator()
         em.add_command(label="🔍 檢查重複車輛", command=self.check_duplicate_vehicles)
         em.add_command(label="📝 編輯已勾選載具 (0)", command=self.edit_checked_vehicles)
-        em.add_command(label="🎲 今天開哪台？", command=self.random_ride)
+        em.add_command(label="🎲 今天開哪台？", command=self.random_ride); em.add_separator(); em.add_command(label="🏷️ 管理取得方式", command=self.open_acquire_manager_window)
         self.menubar.add_cascade(label="載具 (V)", menu=em); self.edit_menu = em
         
         tm = tk.Menu(self.menubar, tearoff=0, bg="#2d2d2d", fg="white")
@@ -874,44 +891,121 @@ class GTAGarageApp:
                 self.show_toast_progress("📥 CSV 匯出成功！"); messagebox.showinfo("成功", f"匯出至：\n{fp}")
             except Exception as e: messagebox.showerror("錯誤", f"匯出失敗：{e}")
 
+    def open_acquire_manager_window(self):
+        if self.check_win('acquire_manager_window'): return
+        if not self.data: return messagebox.showwarning("提示", "請先登入！")
+        self.acquire_manager_window = win = tk.Toplevel(self.root); win.title("🏷️ 取得方式管理"); self.center_toplevel_window(win, 450, 420); win.configure(bg=COLOR_CARD_BG)
+        
+        tk.Label(win, text="🏷️ 載具取得方式管理", font=("Microsoft JhengHei", 14, "bold"), bg=COLOR_CARD_BG, fg="#F39C12").pack(pady=(20, 10))
+        tk.Label(win, text="新增、修改或刪除下拉選單中的取得方式項目", font=("Microsoft JhengHei", 10), bg=COLOR_CARD_BG, fg=COLOR_TEXT_GRAY).pack(pady=(0, 10))
+
+        f_list = tk.Frame(win, bg="#111111", bd=1, relief="solid")
+        f_list.pack(fill="both", expand=True, padx=40, pady=5)
+        sb_aq = ttk.Scrollbar(f_list)
+        sb_aq.pack(side="right", fill="y")
+        lb_aq = tk.Listbox(f_list, font=("Microsoft JhengHei", 11), bg="#111111", fg="white", selectbackground="#00BCD4", bd=0, highlightthickness=0, yscrollcommand=sb_aq.set, exportselection=False)
+        lb_aq.pack(side="left", fill="both", expand=True)
+        sb_aq.config(command=lb_aq.yview)
+        
+        if "acquire_options" not in self.data: self.data["acquire_options"] = ["搶劫獲得", "路邊撿取", "車友會購買", "西門車坊購買"]
+        for opt in self.data["acquire_options"]: lb_aq.insert("end", opt)
+        
+        f_btn = tk.Frame(win, bg=COLOR_CARD_BG)
+        f_btn.pack(fill="x", padx=40, pady=15)
+        
+        e_aq = tk.Entry(f_btn, font=("Microsoft JhengHei", 11), bg="#111111", fg="white", insertbackground="white", relief="solid")
+        e_aq.pack(side="left", fill="x", expand=True, padx=(0, 10), ipady=4)
+        if "apply_focus_highlight" in globals(): apply_focus_highlight(e_aq)
+        
+        def on_aq_select(e):
+            sel = lb_aq.curselection()
+            if sel:
+                e_aq.delete(0, tk.END)
+                e_aq.insert(0, lb_aq.get(sel[0]))
+        lb_aq.bind("<<ListboxSelect>>", on_aq_select)
+        
+        def add_aq(event=None):
+            v = e_aq.get().strip()
+            if not v: return messagebox.showwarning("錯誤", "名稱不能為空！", parent=win)
+            if v in self.data["acquire_options"]: return messagebox.showwarning("錯誤", "此取得方式已存在！", parent=win)
+            self.data["acquire_options"].append(v)
+            save_data(self.all_data)
+            if hasattr(self, 'update_acquire_comboboxes'): self.update_acquire_comboboxes()
+            lb_aq.insert("end", v)
+            e_aq.delete(0, "end")
+            if hasattr(self, 'show_toast_progress'): self.show_toast_progress("➕ 已新增取得方式")
+        
+        def edit_aq():
+            sel = lb_aq.curselection()
+            if not sel: return messagebox.showwarning("提示", "請先從上方選擇要修改的項目！", parent=win)
+            idx = int(sel[0])
+            old_v = lb_aq.get(idx)
+            new_v = e_aq.get().strip()
+            if not new_v: return messagebox.showwarning("錯誤", "名稱不能為空！", parent=win)
+            if new_v == old_v: return
+            if new_v in self.data["acquire_options"]: return messagebox.showwarning("錯誤", "此取得方式已存在！", parent=win)
+            self.data["acquire_options"][idx] = new_v
+            
+            if messagebox.askyesno("同步更新", f"是否要將現有載具中標記為「{old_v}」的取得方式\n同步更新為「{new_v}」？", parent=win):
+                c = 0
+                for v in self.data.get("vehicles", []):
+                    if v.get("acquire") == old_v:
+                        v["acquire"] = new_v
+                        c += 1
+                if c > 0: messagebox.showinfo("同步完成", f"已為 {c} 輛載具更新取得方式！", parent=win)
+                if hasattr(self, 'refresh_vehicle_tables'): self.refresh_vehicle_tables()
+                
+            save_data(self.all_data)
+            if hasattr(self, 'update_acquire_comboboxes'): self.update_acquire_comboboxes()
+            lb_aq.delete(idx)
+            lb_aq.insert(idx, new_v)
+            lb_aq.selection_set(idx)
+            if hasattr(self, 'show_toast_progress'): self.show_toast_progress("📝 修改成功")
+        
+        def del_aq():
+            sel = lb_aq.curselection()
+            if not sel: return messagebox.showwarning("提示", "請先從上方選擇要刪除的項目！", parent=win)
+            idx = int(sel[0])
+            v = lb_aq.get(idx)
+            if messagebox.askyesno("確認", f"確定要刪除「{v}」嗎？\n(註: 現有載具身上的標籤不會受影響)", parent=win):
+                self.data["acquire_options"].pop(idx)
+                save_data(self.all_data)
+                if hasattr(self, 'update_acquire_comboboxes'): self.update_acquire_comboboxes()
+                lb_aq.delete(idx)
+                e_aq.delete(0, "end")
+                if hasattr(self, 'show_toast_progress'): self.show_toast_progress("❌ 已刪除取得方式")
+        
+        tk.Button(f_btn, text="➕ 新增", bg="#4CAF50", fg="white", font=("Microsoft JhengHei", 10, "bold"), relief="flat", command=add_aq).pack(side="left", padx=2, ipady=2, ipadx=4)
+        tk.Button(f_btn, text="📝 修改", bg="#F39C12", fg="white", font=("Microsoft JhengHei", 10, "bold"), relief="flat", command=edit_aq).pack(side="left", padx=2, ipady=2, ipadx=4)
+        tk.Button(f_btn, text="❌ 刪除", bg="#F44336", fg="white", font=("Microsoft JhengHei", 10, "bold"), relief="flat", command=del_aq).pack(side="left", padx=2, ipady=2, ipadx=4)
+        e_aq.bind("<Return>", add_aq)
+
     def open_settings_window(self):
         if self.check_win('settings_window'): return
         if not self.data: return messagebox.showwarning("提示", "請先登入！")
-        self.settings_window = win = tk.Toplevel(self.root); win.title("⚙️ 全域設定"); self.center_toplevel_window(win, 520, 480); win.configure(bg=COLOR_CARD_BG)
+        self.settings_window = win = tk.Toplevel(self.root); win.title("⚙️ 全域設定"); self.center_toplevel_window(win, 520, 380); win.configure(bg=COLOR_CARD_BG)
         cv = tk.Canvas(win, borderwidth=0, bg=COLOR_CARD_BG, highlightthickness=0); sb = ttk.Scrollbar(win, orient="vertical", command=cv.yview)
         sf = tk.Frame(cv, bg=COLOR_CARD_BG); sf.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
         cv.create_window((0, 0), window=sf, anchor="nw", width=500); cv.configure(yscrollcommand=sb.set); cv.pack(side="left", fill="both", expand=True); sb.pack(side="right", fill="y")
         win.bind("<Enter>", lambda e: cv.bind_all("<MouseWheel>", lambda ev: cv.yview_scroll(int(-1*(ev.delta/120)), "units"))); win.bind("<Leave>", lambda e: cv.unbind_all("<MouseWheel>"))
-        tk.Label(sf, text="👁️ 版面顯示設定", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#4CAF50").pack(pady=(15, 5))
+        
+        tk.Label(sf, text="👁️ 版面顯示設定", font=("Microsoft JhengHei", 14, "bold"), bg=COLOR_CARD_BG, fg="#4CAF50").pack(pady=(15, 5))
         st = self.data.get("app_settings", {}); vd = {}
         fc = tk.Frame(sf, bg=COLOR_CARD_BG); fc.pack(fill="x", padx=40)
-        for k, t in [("tab_vehicles", "🚗 車輛管理"), ("tab_non_personal", "🚜 非個人載具"), ("tab_pegasus", "🚁 帕格薩斯載具"), ("tab_special", "🚁 特殊載具"), ("tab_garages", "🏠 車庫管理"), ("tab_hangars", "✈️ 機庫管理"), ("tab_wishlist", "🛒 購車願望清單"), ("tab_guides", "📚 攻略筆記"), ("tab_statistics", "📊 統計資料"), ("tab_logs", "📜 操作日誌"), ("tool_stopwatch", "⏱️ 任務碼錶工具"), ("auto_backup", "🔄 自動備份資料")]:
+        for k, t in [("tab_vehicles", "🚗 車輛管理"), ("tab_non_personal", "🚜 非個人載具"), ("tab_pegasus", "🚁 帕格薩斯載具"), ("tab_special", "🚁 特殊載具"), ("tab_garages", "🏠 車庫管理"), ("tab_hangars", "🛫 機庫管理"), ("tab_wishlist", "🛒 購車願望清單"), ("tab_guides", "📚 攻略筆記"), ("tab_statistics", "📊 統計資料"), ("tab_logs", "📜 操作日誌"), ("tool_stopwatch", "⏱️ 任務碼錶工具"), ("auto_backup", "🔄 自動備份資料")]:
             v = tk.BooleanVar(win, value=st.get(k, True)); vd[k] = v
-            tk.Checkbutton(fc, text=t, variable=v, bg=COLOR_CARD_BG, fg="white", selectcolor="#757575", font=FONT_BOLD, command=lambda key=k, var=v: var.set(True) if key == "auto_backup" and not var.get() and not messagebox.askyesno("⚠️ 安全警告", "關閉「自動備份」代表未來關閉系統時不再保留備份存檔！\n若不慎發生資料遺失將無法還原，確定要取消保護嗎？", parent=win) else None).pack(anchor="w", pady=3)
+            tk.Checkbutton(fc, text=t, variable=v, bg=COLOR_CARD_BG, fg="white", selectcolor="#757575", font=("Microsoft JhengHei", 12, "bold"), command=lambda key=k, var=v: var.set(True) if key == "auto_backup" and not var.get() and not messagebox.askyesno("⚠️ 安全警告", "關閉「自動備份」代表未來關閉系統時不再保留備份存檔！\n若不慎發生資料遺失將無法還原，確定要取消保護嗎？", parent=win) else None).pack(anchor="w", pady=3)
 
         ttk.Separator(sf, orient="horizontal").pack(fill="x", pady=15, padx=20)
-        tk.Label(sf, text="🏷️ 「取得方式」管理", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#F39C12").pack(pady=(5, 5))
-        fa = tk.Frame(sf, bg=COLOR_CARD_BG); fa.pack(fill="x", padx=50, pady=5); sba = ttk.Scrollbar(fa); sba.pack(side="right", fill="y")
-        la = tk.Listbox(fa, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", selectbackground="#4CAF50", height=5, relief="solid", yscrollcommand=sba.set); la.pack(side="left", fill="both", expand=True); sba.config(command=la.yview)
-        t_acq = self.data.get("acquire_options", ACQUIRE_OPTIONS).copy()
-        for opt in t_acq: la.insert(tk.END, opt)
-        bfa = tk.Frame(sf, bg=COLOR_CARD_BG); bfa.pack(fill="x", padx=50, pady=5); ena = tk.Entry(bfa, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=14); ena.pack(side="left", padx=(0, 10), fill="x", expand=True, ipady=3)
-        def add_a():
-            v = ena.get().strip()
-            if v and v not in t_acq: t_acq.append(v); la.insert(tk.END, v); ena.delete(0, tk.END); la.see(tk.END)
-        def del_a():
-            s = la.curselection()
-            if s: t_acq.pop(s[0]); la.delete(s[0])
-        ttk.Button(bfa, text="➕ 新增", command=add_a, style="Success.TButton").pack(side="left", padx=2); ttk.Button(bfa, text="❌ 刪除", command=del_a, style="Danger.TButton").pack(side="left", padx=2)
-        ttk.Separator(sf, orient="horizontal").pack(fill="x", pady=15, padx=20)
-        tk.Label(sf, text="⌨️ 任務碼錶快捷鍵", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#9b59b6").pack(pady=(5, 5))
+        tk.Label(sf, text="⌨️ 任務碼錶快捷鍵", font=("Microsoft JhengHei", 14, "bold"), bg=COLOR_CARD_BG, fg="#9b59b6").pack(pady=(5, 5))
         fh = tk.Frame(sf, bg=COLOR_CARD_BG); fh.pack(fill="x", padx=40, pady=5)
-        tk.Label(fh, text="準備/暫停:", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).grid(row=0, column=0, sticky="e", pady=8)
-        ehp = tk.Entry(fh, font=FONT_NORMAL, bg="#111111", fg="#4CAF50", insertbackground="white", relief="sunken", bd=2, width=12)
+        tk.Label(fh, text="準備/暫停:", bg=COLOR_CARD_BG, fg="white", font=("Microsoft JhengHei", 12, "bold")).grid(row=0, column=0, sticky="e", pady=8)
+        ehp = tk.Entry(fh, font=("Microsoft JhengHei", 12), bg="#111111", fg="#4CAF50", insertbackground="white", relief="sunken", bd=2, width=12)
         ehp.insert(0, st.get("hotkey_pause", "pause")); ehp.grid(row=0, column=1, padx=10, pady=8)
-        tk.Label(fh, text="起跑/計時:", bg=COLOR_CARD_BG, fg="white", font=FONT_BOLD).grid(row=1, column=0, sticky="e", pady=8)
-        ehs = tk.Entry(fh, font=FONT_NORMAL, bg="#111111", fg="#4CAF50", insertbackground="white", relief="sunken", bd=2, width=12)
+        tk.Label(fh, text="起跑/計時:", bg=COLOR_CARD_BG, fg="white", font=("Microsoft JhengHei", 12, "bold")).grid(row=1, column=0, sticky="e", pady=8)
+        ehs = tk.Entry(fh, font=("Microsoft JhengHei", 12), bg="#111111", fg="#4CAF50", insertbackground="white", relief="sunken", bd=2, width=12)
         ehs.insert(0, st.get("hotkey_start", "w")); ehs.grid(row=1, column=1, padx=10, pady=8)
+        
         def setup_hotkey_capture(entry):
             def on_key(e):
                 k = e.keysym.lower()
@@ -920,29 +1014,45 @@ class GTAGarageApp:
                 if "win" in k or "menu" in k: return "break"
                 entry.delete(0, tk.END); entry.insert(0, k); return "break"
             entry.bind("<Key>", on_key); entry.bind("<FocusIn>", lambda e: entry.config(bg=COLOR_FOCUS_BG)); entry.bind("<FocusOut>", lambda e: entry.config(bg="#111111"))
+            
         setup_hotkey_capture(ehp); setup_hotkey_capture(ehs)
+        
         def save():
             for k, v in vd.items(): self.data["app_settings"][k] = v.get()
-            self.data["app_settings"]["hotkey_pause"] = ehp.get().strip().lower() or "pause"; self.data["app_settings"]["hotkey_start"] = ehs.get().strip().lower() or "w"
-            self.data["acquire_options"] = t_acq; save_data(self.all_data); self.apply_settings(); self.check_login_status(); self.refresh_garage_table(); win.destroy(); self.show_toast_progress("⚙️ 設定已儲存")
+            self.data["app_settings"]["hotkey_pause"] = ehp.get().strip().lower() or "pause"
+            self.data["app_settings"]["hotkey_start"] = ehs.get().strip().lower() or "w"
+            save_data(self.all_data)
+            self.apply_settings()
+            self.check_login_status()
+            self.refresh_garage_table()
+            win.destroy()
+            if hasattr(self, 'show_toast_progress'): self.show_toast_progress("⚙️ 設定已儲存")
+            
         ttk.Button(sf, text="💾 儲存並套用", command=save, style="Primary.TButton").pack(fill="x", padx=40, pady=(20, 20), ipady=4)
-
     def apply_settings(self):
         st = self.data.get("app_settings", {}) if self.data else {"tool_stopwatch": True}
         pk, sk = st.get("hotkey_pause", "pause"), st.get("hotkey_start", "w")
         if st.get("tool_stopwatch", True):
-            self.tools_menu.entryconfig("⏱️ 呼叫任務碼錶", state="normal")
-            if HAS_KEYBOARD:
+            try: self.tools_menu.entryconfig("⏱️ 呼叫任務碼錶", state="normal")
+            except: pass
+            if "HAS_KEYBOARD" in globals() and HAS_KEYBOARD:
                 try: keyboard.unhook_all(); keyboard.add_hotkey(pk, self.handle_pause_key); keyboard.add_hotkey(sk, self.handle_w_key)
                 except: pass
-            else: self.root.bind_all(f"<{pk.capitalize()}>", self.handle_pause_key); self.root.bind_all(f"<{sk.lower()}>", self.handle_w_key)
+            else:
+                try: self.root.bind_all(f"<{pk.capitalize()}>", self.handle_pause_key)
+                except: pass
+                try: self.root.bind_all(f"<{sk.lower()}>", self.handle_w_key)
+                except: pass
         else:
-            self.tools_menu.entryconfig("⏱️ 呼叫任務碼錶", state="disabled")
-            if HAS_KEYBOARD:
+            try: self.tools_menu.entryconfig("⏱️ 呼叫任務碼錶", state="disabled")
+            except: pass
+            if "HAS_KEYBOARD" in globals() and HAS_KEYBOARD:
                 try: keyboard.unhook_all()
                 except: pass
-            self.root.unbind_all(f"<{pk.capitalize()}>"); self.root.unbind_all(f"<{sk.lower()}>")
-
+            try: self.root.unbind_all(f"<{pk.capitalize()}>")
+            except: pass
+            try: self.root.unbind_all(f"<{sk.lower()}>")
+            except: pass
     def setup_status_bar(self):
         self.status_bar = tk.Label(self.root, text="💡 系統就緒。", bg="#111111", fg="#FF9800", font=FONT_BOLD, anchor="w", padx=15, pady=6); self.status_bar.pack(side="bottom", fill="x")
         self.root.after(1000, self.apply_new_tags_loop)
@@ -1040,7 +1150,7 @@ class GTAGarageApp:
         map_dict = {
             "🚗 車輛管理": "tab_vehicles", "🚜 非個人載具": "tab_non_personal", "🚁 帕格薩斯載具": "tab_pegasus", 
             "🚁 特殊載具": "tab_special", "🏠 車庫管理": "tab_garages", 
-            "✈️ 機庫管理": "tab_hangars", "🛒 購車願望清單": "tab_wishlist", 
+            "🛫 機庫管理": "tab_hangars", "🛒 購車願望清單": "tab_wishlist", 
             "📚 攻略筆記": "tab_guides", "📊 統計資料": "tab_statistics", 
             "⭐【操作日誌】": "tab_logs"
         }
@@ -1124,7 +1234,52 @@ class GTAGarageApp:
                     break
         except: pass
 
+    def check_salvage_yard_warning(self):
+        if not getattr(self, 'data', None): return
+        sc = [v["name"] for v in self.data.get("vehicles", []) if "廢車回收" in v.get("garage", "")]
+        if not sc: return
+        
+        # 🛡️ 檢查是否在休眠期間內
+        mute_until = self.data.get("app_settings", {}).get("salvage_mute_until", "")
+        if mute_until and time.strftime('%Y-%m-%d %H:%M') < mute_until:
+            return 
+            
+        w = tk.Toplevel(self.root)
+        w.title("⚠️ 廢車回收廠清空提醒")
+        self.center_toplevel_window(w, 400, 360)
+        w.configure(bg="#2d2d2d")
+        w.attributes("-topmost", True)
+        
+        tk.Label(w, text="⚠️ 【廢車回收廠】清空提醒 ⚠️", font=("Microsoft JhengHei", 13, "bold"), bg="#2d2d2d", fg="#ff1744").pack(pady=(20, 10))
+        tk.Label(w, text="系統偵測到目前停放了以下載具：\n\n" + "、".join(sc), font=("Microsoft JhengHei", 11), bg="#2d2d2d", fg="white", wraplength=350, justify="center").pack(pady=5)
+        tk.Label(w, text="強烈建議於【每週四任務更新前】清空！", font=("Microsoft JhengHei", 10, "bold"), bg="#2d2d2d", fg="#F39C12").pack(pady=(10, 15))
+        
+        ff = tk.Frame(w, bg="#2d2d2d"); ff.pack(pady=5)
+        tk.Label(ff, text="自訂下次提醒時間:", bg="#2d2d2d", fg="white", font=("Microsoft JhengHei", 10)).pack(side="left")
+        
+        # 預設帶入當天晚上 20:00 作為格式參考
+        e_time = tk.Entry(ff, width=18, font=("Microsoft JhengHei", 11), bg="#111111", fg="white", insertbackground="white", relief="solid")
+        e_time.pack(side="left", padx=5, ipady=3)
+        e_time.insert(0, time.strftime('%Y-%m-%d 20:00'))
+        
+        def save_and_close():
+            t_str = e_time.get().strip()
+            if re.match(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$', t_str):
+                self.data.setdefault("app_settings", {})["salvage_mute_until"] = t_str
+                save_data(self.all_data)
+                messagebox.showinfo("設定成功", f"✅ 系統將在 {t_str} 之前保持靜音，暫不打擾！", parent=w)
+                w.destroy()
+            else:
+                messagebox.showwarning("格式錯誤", "請使用格式：YYYY-MM-DD HH:MM\n(例如：2026-09-17 12:00)", parent=w)
+                
+        bf = tk.Frame(w, bg="#2d2d2d"); bf.pack(pady=15)
+        tk.Button(bf, text="設定並延後提醒", bg="#4CAF50", fg="white", font=("Microsoft JhengHei", 10, "bold"), relief="flat", command=save_and_close).pack(side="left", padx=10, ipady=4)
+        tk.Button(bf, text="關閉 (下次登入繼續提醒)", bg="#7f8c8d", fg="white", font=("Microsoft JhengHei", 10), relief="flat", command=w.destroy).pack(side="left", padx=10, ipady=4)
+
+
+
     def check_login_status(self):
+        if getattr(self, 'current_id', None): self.root.after(800, self.check_salvage_yard_warning)
         self._inject_wipe_menu()
         is_l = bool(self.current_id and self.current_id in self.all_data["profiles"])
         if hasattr(self, 'lbl_current_user'):
@@ -1142,7 +1297,7 @@ class GTAGarageApp:
         if is_l:
             self.data = self.all_data["profiles"][self.current_id]
             for k, d in [("vehicles", []), ("special_vehicles", []), ("garages", ["未分類", "帕格薩斯", "日蝕大樓", "日蝕大樓 - 車庫1"]), ("action_logs", []), ("acquire_options", ACQUIRE_OPTIONS.copy()), ("wishlist", []), ("guides", [])]:
-                if k not in self.data: self.data[key] = d
+                if k not in self.data: self.data[k] = d
             if "garage_limits" not in self.data:
                 self.data["garage_limits"] = {"未分類": 999}; 
                 for g in self.data["garages"]: 
@@ -1174,12 +1329,55 @@ class GTAGarageApp:
         if hasattr(self, 'combo_acquire'): self.combo_acquire["values"] = self.data.get("acquire_options", ACQUIRE_OPTIONS) if self.data else ACQUIRE_OPTIONS
 
     def login_profile(self):
-        sel_idx = self.list_accounts.curselection()
-        if not sel_idx: return messagebox.showwarning("提示", "請選擇要登入的帳號！")
-        sel = self.list_accounts.get(sel_idx[0]).replace("  (當前登入)", "").strip()
-        if sel and sel in self.all_data["profiles"]: 
-            self.current_id = sel; self.check_login_status(); self.show_toast_progress(f"🔑 登入成功：{sel}"); self.set_status(f"🔑 登入：{sel}", "#4CAF50"); self.log_action("🔑 登入系統"); self.on_tab_changed()
+        name = getattr(self, 'entry_new_account', None)
+        name = name.get().strip() if name else ""
+        
+        # 如果輸入框是空的，嘗試從清單抓取
+        if not name:
+            sel_idx = self.list_accounts.curselection()
+            if not sel_idx: return messagebox.showwarning("提示", "請輸入或從下方清單選擇要登入的角色 ID！")
+            name = self.list_accounts.get(sel_idx[0]).replace("  (當前登入)", "").strip()
+            
+        if not name: return
+        
+        if name in self.all_data["profiles"]:
+            # 找到存檔，直接登入
+            self.current_id = name
+            self.check_login_status()
+            self.show_toast_progress(f"🔑 登入成功：{name}")
+            self.set_status(f"🔑 登入：{name}", "#4CAF50")
+            self.log_action("🔑 登入系統")
+            self.on_tab_changed()
             if self.data.get("app_settings", {}).get("tab_vehicles", True): self.notebook.select(self.tab_vehicles)
+        else:
+            # 找不到存檔，詢問是否建立
+            if messagebox.askyesno("未找到存檔", f"系統中找不到角色【{name}】的存檔資料。\n\n是否要為他建立全新的存檔，並且直接登入？"):
+                self.all_data["profiles"][name] = {
+                    "vehicles": [], "special_vehicles": [], 
+                    "garages": ["未分類", "帕格薩斯", "日蝕大樓", "日蝕大樓 - 車庫1"], 
+                    "garage_limits": {"未分類": 999, "帕格薩斯": 999, "日蝕大樓": 10, "日蝕大樓 - 車庫1": 10}, 
+                    "action_logs": [f"[{time.strftime('%Y-%m-%d %H:%M:%S')}]  🌟 建立角色 ID 檔案"], 
+                    "acquire_options": ACQUIRE_OPTIONS.copy(), "wishlist": [], "guides": [],
+                    "app_settings": {"tab_bulletin": True, "tab_vehicles": True, "tab_non_personal": True, 
+                                     "tab_pegasus": True, "tab_special": True, "tab_garages": True, 
+                                     "tab_hangars": True, "tab_statistics": True, "tab_logs": True, 
+                                     "tab_wishlist": True, "tab_guides": True, "tool_stopwatch": True, 
+                                     "disable_all_limits": False, "auto_backup": True, 
+                                     "default_garage_limit": 10, "default_special_limit": 2, 
+                                     "visible_columns": ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"]}
+                }
+                save_data(self.all_data)
+                if hasattr(self, 'refresh_account_listbox'): self.refresh_account_listbox()
+                
+                # 建檔完畢直接登入
+                self.current_id = name
+                self.check_login_status()
+                self.show_toast_progress(f"✅ 成功建立並登入：{name}")
+                self.set_status(f"🔑 登入：{name}", "#4CAF50")
+                self.log_action("🔑 建立新檔並登入系統")
+                self.on_tab_changed()
+                if self.data.get("app_settings", {}).get("tab_vehicles", True): self.notebook.select(self.tab_vehicles)
+
 
     def logout_profile(self): 
         if self.data: self.log_action("🚪 登出系統")
@@ -1205,20 +1403,58 @@ class GTAGarageApp:
             if getattr(self, "last_hovered_iid", None) is not None: self.last_hovered_iid = None; self.set_status("💡 系統就緒。", "#FF9800")
 
     def setup_account_tab(self):
+        for w in self.tab_account.winfo_children(): w.destroy()
         tk.Label(self.tab_account, text="👥 系統帳號與角色管理", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#3498db").pack(pady=(20, 15))
-        fl = tk.LabelFrame(self.tab_account, text=" 🔑 選擇帳號登入 ", font=FONT_BOLD, bg=COLOR_CARD_BG, fg="white"); fl.pack(fill="both", expand=True, padx=40, pady=10)
+        
+        fa = tk.LabelFrame(self.tab_account, text=" 🔑 智慧登入 / 建立角色 ", font=FONT_BOLD, bg=COLOR_CARD_BG, fg="#4CAF50")
+        fa.pack(fill="x", padx=40, pady=10, ipady=5)
+        tk.Label(fa, text="請輸入或從下方選擇角色 ID:", font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white").pack(side="left", padx=(15,5), pady=15)
+        self.entry_new_account = tk.Entry(fa, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=30)
+        self.entry_new_account.pack(side="left", padx=5)
+        apply_focus_highlight(self.entry_new_account)
+        self.btn_tab_login = ttk.Button(fa, text="🚀 登入 / 自動建立", command=self.login_profile, style="Success.TButton")
+        self.btn_tab_login.pack(side="left", padx=10)
+        self.entry_new_account.bind("<Return>", lambda e: self.login_profile())
+        
+        fl = tk.LabelFrame(self.tab_account, text=" 📂 現有角色存檔清單 ", font=FONT_BOLD, bg=COLOR_CARD_BG, fg="white")
+        fl.pack(fill="both", expand=True, padx=40, pady=10)
         sa = ttk.Scrollbar(fl); sa.pack(side="right", fill="y")
-        self.list_accounts = tk.Listbox(fl, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", selectbackground="#3498db", yscrollcommand=sa.set, relief="solid"); self.list_accounts.pack(side="left", fill="both", expand=True, padx=(15, 0), pady=15); sa.config(command=self.list_accounts.yview)
-        self.list_accounts.bind("<Double-1>", lambda e: self.login_profile()); self.list_accounts.bind("<Return>", lambda e: self.login_profile())
+        self.list_accounts = tk.Listbox(fl, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", selectbackground="#3498db", yscrollcommand=sa.set, relief="solid")
+        self.list_accounts.pack(side="left", fill="both", expand=True, padx=(15, 0), pady=15)
+        sa.config(command=self.list_accounts.yview)
+        
+        def on_list_click(e):
+            s = self.list_accounts.curselection()
+            if s:
+                sel = self.list_accounts.get(s[0]).replace("  (當前登入)", "").strip()
+                self.entry_new_account.delete(0, tk.END)
+                self.entry_new_account.insert(0, sel)
+
+        def enforce_click(e):
+            i = self.list_accounts.nearest(e.y)
+            b = self.list_accounts.bbox(i)
+            # 如果座標不在該文字的區塊範圍內 (點到了空白處)，則強制取消選取並阻斷事件
+            if not b or not (b[1] <= e.y <= b[1] + b[3]):
+                self.list_accounts.selection_clear(0, tk.END)
+                return "break"
+
+        def enforce_dclick(e):
+            i = self.list_accounts.nearest(e.y)
+            b = self.list_accounts.bbox(i)
+            # 只有在精準雙擊到文字時，才允許觸發登入
+            if b and (b[1] <= e.y <= b[1] + b[3]): self.login_profile()
+            return "break"
+                
+        self.list_accounts.bind("<<ListboxSelect>>", on_list_click)
+        self.list_accounts.bind("<Button-1>", enforce_click)
+        self.list_accounts.bind("<Double-1>", enforce_dclick)
+        
         bfl = tk.Frame(fl, bg=COLOR_CARD_BG); bfl.pack(side="right", fill="y", padx=15, pady=15)
-        self.btn_tab_login = ttk.Button(bfl, text="🔑 登入選取帳號", command=self.login_profile, style="Success.TButton"); self.btn_tab_login.pack(fill="x", pady=5, ipady=4)
-        self.btn_tab_logout = ttk.Button(bfl, text="🚪 登出當前帳號", command=self.logout_profile, style="Warning.TButton"); self.btn_tab_logout.pack(fill="x", pady=5, ipady=4)
+        self.btn_tab_logout = ttk.Button(bfl, text="🚪 登出當前帳號", command=self.logout_profile, style="Warning.TButton")
+        self.btn_tab_logout.pack(fill="x", pady=5, ipady=4)
         ttk.Button(bfl, text="❌ 刪除選取的帳號", command=self.delete_profile_from_tab, style="Danger.TButton").pack(side="bottom", fill="x", pady=5, ipady=4)
-        fa = tk.LabelFrame(self.tab_account, text=" ➕ 註冊新帳號/角色 ID ", font=FONT_BOLD, bg=COLOR_CARD_BG, fg="#4CAF50"); fa.pack(fill="x", padx=40, pady=10, ipady=5)
-        tk.Label(fa, text="輸入新 ID 名稱:", font=FONT_NORMAL, bg=COLOR_CARD_BG, fg="white").pack(side="left", padx=(15,5), pady=15)
-        self.entry_new_account = tk.Entry(fa, font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="white", insertbackground="white", relief="solid", width=25); self.entry_new_account.pack(side="left", padx=5); apply_focus_highlight(self.entry_new_account)
-        ttk.Button(fa, text="建立帳號", command=self.create_profile_from_tab, style="Success.TButton").pack(side="left", padx=10); self.entry_new_account.bind("<Return>", lambda e: self.create_profile_from_tab())
-        self.refresh_account_listbox()
+        
+
 
     def refresh_account_listbox(self):
         if hasattr(self, 'list_accounts') and self.list_accounts.winfo_exists():
@@ -1246,11 +1482,43 @@ class GTAGarageApp:
             elif ui is not None: messagebox.showerror("驗證失敗", "密碼錯誤。")
 
     def setup_bulletin_tab(self):
-        tk.Label(self.tab_bulletin, text="📢 洛聖都資產管理系統 - 系統公告", font=FONT_LARGE_BOLD, bg=COLOR_MAIN_BG, fg="#4CAF50").pack(pady=(30, 15))
-        tf = tk.Frame(self.tab_bulletin, bg=COLOR_MAIN_BG); tf.pack(fill="both", expand=True, padx=40, pady=(0, 40))
-        sb = ttk.Scrollbar(tf); sb.pack(side="right", fill="y")
-        self.text_bulletin = tk.Text(tf, font=FONT_NORMAL, bg=COLOR_CARD_BG, fg=COLOR_TEXT_WHITE, relief="solid", padx=20, pady=20, wrap="word", yscrollcommand=sb.set); self.text_bulletin.pack(side="left", fill="both", expand=True); sb.config(command=self.text_bulletin.yview); self.refresh_bulletin_display()
+        for w in getattr(self, 'tab_bulletin', tk.Frame()).winfo_children(): w.destroy()
+        tk.Label(self.tab_bulletin, text="📢 系統更新公告與操作指南", font=("Microsoft JhengHei", 16, "bold"), bg="#2d2d2d", fg="#F39C12").pack(pady=(20, 10))
         
+        tf = tk.Frame(self.tab_bulletin, bg="#2d2d2d")
+        tf.pack(fill="both", expand=True, padx=30, pady=10)
+        
+        sb = ttk.Scrollbar(tf)
+        sb.pack(side="right", fill="y")
+        
+        txt = tk.Text(tf, font=("Microsoft JhengHei", 11), bg="#3d3d3d", fg="white", relief="solid", padx=20, pady=20, yscrollcommand=sb.set, spacing2=6)
+        txt.pack(side="left", fill="both", expand=True)
+        sb.config(command=txt.yview)
+        
+        bulletin = """【系統版本 V1.13.0 - 旗艦整合大更新】
+更新日期：2026-09-13
+
+✨ [重點旗艦功能]
+1. 🚀 智慧登入引擎：首頁輸入 ID 即可一秒登入或自動建立存檔，拔除繁瑣按鈕，體驗極致流暢。
+2. 🚨 廢車回收廠防護：獨家防 BUG 系統！新增「自訂延後提醒時間」與車庫專屬紅色警語，徹底預防週四更新吃車災情。
+3. 🔍 重複載具白名單：全新樹狀表格介面，支援 Ctrl/Shift 多選合併；可將刻意購買的多台愛車加入「👀 允許重複」白名單不再提示。
+4. 🧹 專屬清空防呆：車庫新增「🧹 清空」按鈕；變賣或清空車庫時若內有載具，將觸發紅色最高級別警告，避免誤刪。
+
+🔧 [操作體驗與穩定性優化]
+- 🧲 視窗絕對跟隨：機庫、車庫的所有新增與修改視窗，現在 100% 乖乖鎖定在主程式中央。
+- ⌨️ 絲滑連貫輸入：所有編輯視窗皆支援 Enter 鍵無縫跳轉至下一格，最後一格直接存檔關閉。
+- 👁️ 篩選狀態鎖定：修改或移動車輛後，清單不再亂跳，完美維持在您剛才篩選的車庫畫面中。
+- 📦 角色獨立備份：關閉系統時，自動備份檔將精準過濾，只打包「當前登入角色」的純淨資料。
+- 🛡️ 車庫容量防線：修補系統漏洞，徹底封死透過修改功能硬塞超過 10 輛車的後門。
+
+==================================================
+【實用核心功能回顧】
+- 🌟 系統專區置頂：公告、帳號、日誌三個分頁強制高亮釘選於最前方。
+- 🚗 雙擊修改與拖曳：在清單對著載具雙擊即可修改，點擊右鍵支援多選批量移動與銷毀。
+- ⏱️ 遊戲實用碼錶：內建快捷鍵 (預設 W/Pause) 可快速控制的自訂倒數計時器。
+"""
+        txt.insert("1.0", bulletin)
+        txt.config(state="disabled")
     def refresh_bulletin_display(self):
         if not hasattr(self, 'text_bulletin') or not self.text_bulletin.winfo_exists(): return
         cl = f"""==================================================
