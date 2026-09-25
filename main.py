@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_KEYBOARD = False
 
-APP_VERSION = "1.14.0"
+APP_VERSION = "1.14.3"
 DATA_FILE = "gta5_garage_data.json"
 
 ACQUIRE_OPTIONS = ["購買獲得", "任務獲得", "生涯成就", "賭場轉盤", "搶劫獲得", "車友會", "其他備註"]
@@ -636,12 +636,18 @@ class GTAGarageApp:
             nv = [c_id for c_id, v in vd.items() if v.get()]
             if not nv: return messagebox.showwarning("警告", "請至少保留一個顯示欄位！", parent=win)
             self.data["app_settings"]["visible_columns"] = nv; save_data(self.all_data)
-            if hasattr(self, 'tree_vehicles') and self.tree_vehicles.winfo_exists(): self.tree_vehicles["displaycolumns"] = nv
-            if hasattr(self, 'tree_non_personal') and self.tree_non_personal.winfo_exists(): self.tree_non_personal["displaycolumns"] = nv
-            if hasattr(self, 'tree_pegasus') and self.tree_pegasus.winfo_exists(): self.tree_pegasus["displaycolumns"] = nv
+            
+            # 🌟 核心修復：強制觸發 Tkinter 的欄位拉伸與重繪計算
+            base_w = {"check": 60, "name": 180, "garage": 140, "vtype": 90, "acquire": 100, "price": 110, "upgrade": 80, "count": 50, "notes": 120}
+            for t_name in ['tree_vehicles', 'tree_non_personal', 'tree_pegasus']:
+                if hasattr(self, t_name):
+                    tree = getattr(self, t_name)
+                    if tree and tree.winfo_exists():
+                        tree["displaycolumns"] = nv
+                        for col in nv: tree.column(col, width=base_w.get(col, 100), stretch=(col in ["name", "garage", "notes"]))
+                        tree.update_idletasks()
             self.show_toast_progress("✅ 欄位顯示設定已更新！"); win.destroy()
         ttk.Button(win, text="💾 儲存並即時套用", command=save_cols, style="Success.TButton").pack(fill="x", padx=40, pady=(10, 20), ipady=4)
-
     def master_stopwatch_loop(self):
         if getattr(self, 'is_running', False):
             now = time.time(); mode = getattr(self, 'sw_mode', 'STOPWATCH')
@@ -1311,9 +1317,14 @@ class GTAGarageApp:
             self.cd_target_sec = self.data["app_settings"].get("default_countdown_sec", 300.0)
             if not getattr(self, 'is_running', False) and self.sw_mode == "COUNTDOWN": self.elapsed_time = self.cd_target_sec; self.update_stopwatch_ui()
             vc = self.data["app_settings"].get("visible_columns", ["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"])
-            if hasattr(self, 'tree_vehicles') and self.tree_vehicles.winfo_exists(): self.tree_vehicles["displaycolumns"] = vc
-            if hasattr(self, 'tree_non_personal') and self.tree_non_personal.winfo_exists(): self.tree_non_personal["displaycolumns"] = vc
-            if hasattr(self, 'tree_pegasus') and self.tree_pegasus.winfo_exists(): self.tree_pegasus["displaycolumns"] = vc
+            base_w = {"check": 60, "name": 180, "garage": 140, "vtype": 90, "acquire": 100, "price": 110, "upgrade": 80, "count": 50, "notes": 120}
+            for t_name in ['tree_vehicles', 'tree_non_personal', 'tree_pegasus']:
+                if hasattr(self, t_name):
+                    tree = getattr(self, t_name)
+                    if tree and tree.winfo_exists():
+                        tree["displaycolumns"] = vc
+                        for col in vc: tree.column(col, width=base_w.get(col, 100), stretch=(col in ["name", "garage", "notes"]))
+                        tree.update_idletasks()
         else: 
             self.current_id, self.data = "", None
             if hasattr(self, 'text_logs'): self.text_logs.config(state="normal"); self.text_logs.delete("1.0", tk.END); self.text_logs.config(state="disabled")
@@ -1856,7 +1867,7 @@ class GTAGarageApp:
     def _setup_tree(self, tree):
         for col, text in {"check": "☑", "name": "車輛名稱", "garage": "存放位置", "vtype": "類型", "acquire": "取得方式", "price":"價值(GTA$)", "upgrade": "改裝", "count": "數量", "notes": "備註"}.items(): tree.heading(col, text=text)
         for col, w in zip(["check", "name", "garage", "vtype", "acquire", "price", "upgrade", "count", "notes"], [60, 180, 140, 90, 100, 110, 80, 50, 120]): tree.column(col, width=w, anchor="center" if col not in ["name", "notes"] else "w", stretch=(col in ["name", "garage", "notes"]))
-        tree.bind("<ButtonRelease-1>", self.on_tree_click); tree.bind("<Control-a>", self.select_all_vehicles); tree.bind("<Control-A>", self.select_all_vehicles); tree.bind("<Double-1>", self.open_edit_window); tree.bind("<Return>", self.open_edit_window); tree.bind("<Delete>", self.delete_vehicle); tree.bind("<Motion>", self.on_vehicle_hover); tree.bind("<Leave>", lambda e: self.set_status("💡 系統就緒。", "#FF9800")); tree.bind("<Button-3>", self.show_vehicle_context_menu)
+        tree.bind("<ButtonRelease-1>", self.on_tree_click); tree.bind("<Control-a>", self.select_all_vehicles); tree.bind("<Control-A>", self.select_all_vehicles); tree.bind("<Double-1>", self.open_edit_window); tree.bind("<Return>", self.open_edit_window); tree.bind("<Delete>", self.delete_vehicle); tree.bind("<Motion>", self.on_vehicle_hover); tree.bind("<Leave>", lambda e: self.set_status("💡 系統就緒。", "#FF9800")); tree.bind("<Button-3>", self.show_vehicle_context_menu); tree.tag_configure("career_progress", foreground="#F1C40F", font=("Microsoft JhengHei", 12, "bold"))
 
     def setup_vehicles_tab(self):
         inf = tk.LabelFrame(self.tab_vehicles, text=" 📝 登記新載具資產 ", font=FONT_LARGE_BOLD, bg=COLOR_CARD_BG, fg="#4CAF50", padx=12, pady=12, bd=2)
@@ -1974,15 +1985,19 @@ class GTAGarageApp:
                 tse = nm; te = em
                 
             tse.add(iid)
-            if iid in te: tt.item(iid, values=vs); tt.move(iid, "", "end")
-            else: tt.insert("", "end", iid=iid, values=vs)
+            
+            # 🌟 動態判斷是否為生涯進度，賦予專屬的高亮 Tag
+            acq = c.get("acquire", "")
+            rt = ("career_progress",) if "生涯進度" in acq or "生涯成就" in acq else ()
+            
+            if iid in te: tt.item(iid, values=vs, tags=rt); tt.move(iid, "", "end")
+            else: tt.insert("", "end", iid=iid, values=vs, tags=rt)
             
         for iid in em - nm: self.tree_vehicles.delete(iid)
         if hasattr(self, 'tree_non_personal'):
             for iid in en - nn: self.tree_non_personal.delete(iid)
         if hasattr(self, 'tree_pegasus'):
             for iid in ep - np_set: self.tree_pegasus.delete(iid)
-
     def add_vehicle(self):
         if not self.data: return
         name = self.entry_name.get().strip()
