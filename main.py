@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_KEYBOARD = False
 
-APP_VERSION = "1.14.3"
+APP_VERSION = "1.14.7"
 DATA_FILE = "gta5_garage_data.json"
 
 ACQUIRE_OPTIONS = ["購買獲得", "任務獲得", "生涯成就", "賭場轉盤", "搶劫獲得", "車友會", "其他備註"]
@@ -130,6 +130,41 @@ class GTAGarageApp:
         for name, (bg, active_bg) in btn_colors.items():
             self.style.configure(f"{name}.TButton", background=bg, foreground="white", bordercolor=bg, lightcolor=bg, darkcolor=bg)
             self.style.map(f"{name}.TButton", background=[("disabled", "#424242"), ("active", active_bg), ("pressed", active_bg)], foreground=[("disabled", "#777777"), ("active", "white")])
+        
+        # 🌟 全域輸入框右鍵選單 (支援複製貼上)
+        def _input_action(action):
+            w = self.root.focus_get()
+            if not w: return
+            try:
+                if action == "cut": w.event_generate("<<Cut>>")
+                elif action == "copy": w.event_generate("<<Copy>>")
+                elif action == "paste": w.event_generate("<<Paste>>")
+                elif action == "select_all":
+                    if isinstance(w, tk.Entry) or w.winfo_class() == 'TCombobox':
+                        w.select_range(0, tk.END)
+                        w.icursor(tk.END)
+                    elif isinstance(w, tk.Text):
+                        w.tag_add(tk.SEL, "1.0", tk.END)
+            except: pass
+
+        self.input_menu = tk.Menu(self.root, tearoff=0, bg="#2d2d2d", fg="white", font=("Microsoft JhengHei", 10))
+        self.input_menu.add_command(label="✂️ 剪下 (Cut)", command=lambda: _input_action("cut"))
+        self.input_menu.add_command(label="📄 複製 (Copy)", command=lambda: _input_action("copy"))
+        self.input_menu.add_command(label="📋 貼上 (Paste)", command=lambda: _input_action("paste"))
+        self.input_menu.add_separator()
+        self.input_menu.add_command(label="🔳 全選 (Select All)", command=lambda: _input_action("select_all"))
+
+        def show_input_menu(e):
+            w = e.widget
+            try:
+                if w.cget("state") == "disabled": return
+            except: pass
+            w.focus_set()
+            self.input_menu.post(e.x_root, e.y_root)
+            
+        self.root.bind_class("Entry", "<Button-3>", show_input_menu)
+        self.root.bind_class("Text", "<Button-3>", show_input_menu)
+        self.root.bind_class("TCombobox", "<Button-3>", show_input_menu)
         
         save_data(self.all_data) 
         self.current_id = ""; self.data = None; self.checked_indices = set()
@@ -564,7 +599,7 @@ class GTAGarageApp:
         em.add_separator()
         em.add_command(label="🔍 檢查重複車輛", command=self.check_duplicate_vehicles)
         em.add_command(label="📝 編輯已勾選載具 (0)", command=self.edit_checked_vehicles)
-        em.add_command(label="🎲 今天開哪台？", command=self.random_ride); em.add_separator(); em.add_command(label="🏷️ 管理取得方式", command=self.open_acquire_manager_window)
+        em.add_command(label="🎲 今天開哪台？", command=self.random_ride); em.add_separator(); em.add_command(label="🔖 管理取得方式", command=self.open_acquire_manager_window)
         self.menubar.add_cascade(label="載具 (V)", menu=em); self.edit_menu = em
         
         tm = tk.Menu(self.menubar, tearoff=0, bg="#2d2d2d", fg="white")
@@ -1506,27 +1541,22 @@ class GTAGarageApp:
         txt.pack(side="left", fill="both", expand=True)
         sb.config(command=txt.yview)
         
-        bulletin = """【系統版本 V1.13.0 - 旗艦整合大更新】
-更新日期：2026-09-13
+        bulletin = """【系統版本 V1.14.7 - 旗艦智慧體驗大升級】
+更新日期：2026-09-27
 
-✨ [重點旗艦功能]
-1. 🚀 智慧登入引擎：首頁輸入 ID 即可一秒登入或自動建立存檔，拔除繁瑣按鈕，體驗極致流暢。
-2. 🚨 廢車回收廠防護：獨家防 BUG 系統！新增「自訂延後提醒時間」與車庫專屬紅色警語，徹底預防週四更新吃車災情。
-3. 🔍 重複載具白名單：全新樹狀表格介面，支援 Ctrl/Shift 多選合併；可將刻意購買的多台愛車加入「👀 允許重複」白名單不再提示。
-4. 🧹 專屬清空防呆：車庫新增「🧹 清空」按鈕；變賣或清空車庫時若內有載具，將觸發紅色最高級別警告，避免誤刪。
+✨ [V1.14 重點旗艦功能]
+1. 🖱️ 全域右鍵系統：所有輸入框（包含新增、修改與筆記）全面支援滑鼠右鍵「複製/貼上/剪下/全選」。
+2. 🏆 生涯黃金高亮：取得方式設定為「生涯進度」或「生涯成就」的車輛，將自動套用專屬黃金粗體字！
+3. 🤖 智慧輸入引擎：選取「獎品/轉盤/生涯」類別時，按下 Enter 將自動填入 0 元並秒存檔。
+4. 📏 滿版自適應：隱藏自訂欄位後，剩下的表格會自動等比例拉伸，完美填滿畫面不留白。
+5. 🏷️ 取得方式獨立：「管理取得方式」已移至上方【載具 (V)】選單，並修復所有選單圖示對齊。
+6. 🛡️ 點擊防護盾：修復首頁清單點擊空白處會異常選取上方帳號的底層 BUG。
 
-🔧 [操作體驗與穩定性優化]
-- 🧲 視窗絕對跟隨：機庫、車庫的所有新增與修改視窗，現在 100% 乖乖鎖定在主程式中央。
-- ⌨️ 絲滑連貫輸入：所有編輯視窗皆支援 Enter 鍵無縫跳轉至下一格，最後一格直接存檔關閉。
-- 👁️ 篩選狀態鎖定：修改或移動車輛後，清單不再亂跳，完美維持在您剛才篩選的車庫畫面中。
-- 📦 角色獨立備份：關閉系統時，自動備份檔將精準過濾，只打包「當前登入角色」的純淨資料。
-- 🛡️ 車庫容量防線：修補系統漏洞，徹底封死透過修改功能硬塞超過 10 輛車的後門。
-
-==================================================
-【實用核心功能回顧】
-- 🌟 系統專區置頂：公告、帳號、日誌三個分頁強制高亮釘選於最前方。
-- 🚗 雙擊修改與拖曳：在清單對著載具雙擊即可修改，點擊右鍵支援多選批量移動與銷毀。
-- ⏱️ 遊戲實用碼錶：內建快捷鍵 (預設 W/Pause) 可快速控制的自訂倒數計時器。
+🔧 [V1.13 核心防護與優化回顧]
+- 🚀 智慧登入引擎：首頁輸入 ID 即可一秒登入或自動建立存檔。
+- 🚨 廢車回收廠防護：自訂週四更新前延後提醒，預防吃車災情。
+- 🔍 重複載具白名單：樹狀表格支援多選合併，可將車輛加入「👀 允許重複」白名單。
+- 💾 儲存神經貫通：徹底排除碼錶特殊快捷鍵衝突，導致全域設定無法儲存的致命崩潰。
 """
         txt.insert("1.0", bulletin)
         txt.config(state="disabled")
@@ -1911,7 +1941,22 @@ class GTAGarageApp:
         # 綁定 Enter 鍵自動跳到下一格的快捷功能
         self.entry_name.bind("<Return>", lambda e: self.combo_garage.focus())
         self.combo_garage.bind("<Return>", lambda e: self.combo_acquire.focus())
-        self.combo_acquire.bind("<Return>", lambda e: self.entry_price.focus())
+        def smart_acq_enter(e=None):
+            v = self.combo_acquire.get()
+            if any(k in v for k in ['獎', '轉盤', '免費', '送', '生涯', '白嫖', '活動']):
+                self.entry_price.delete(0, tk.END)
+                self.entry_price.insert(0, '0')
+                self.add_vehicle()
+                return 'break'
+            else:
+                self.entry_price.focus()
+                return 'break'
+        def smart_acq_select(e=None):
+            v = self.combo_acquire.get()
+            if any(k in v for k in ['獎', '轉盤', '免費', '送', '生涯', '白嫖', '活動']):
+                if not self.entry_price.get().strip(): self.entry_price.insert(0, '0')
+        self.combo_acquire.bind('<<ComboboxSelected>>', smart_acq_select)
+        self.combo_acquire.bind('<Return>', smart_acq_enter)
         self.entry_price.bind("<Return>", lambda e: self.add_vehicle())
         af = tk.Frame(self.tab_vehicles, bg=COLOR_MAIN_BG); af.pack(fill="x", padx=15, pady=5)
         tk.Label(af, text="🔍 全域搜尋:", bg=COLOR_MAIN_BG, fg="white", font=FONT_NORMAL).pack(side="left")
