@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_KEYBOARD = False
 
-APP_VERSION = "1.14.7"
+APP_VERSION = "1.14.14"
 DATA_FILE = "gta5_garage_data.json"
 
 ACQUIRE_OPTIONS = ["購買獲得", "任務獲得", "生涯成就", "賭場轉盤", "搶劫獲得", "車友會", "其他備註"]
@@ -355,6 +355,8 @@ class GTAGarageApp:
         def save_new_plane(event=None):
             n, s, p, nt = e_n.get().strip(), c_s.get().strip(), e_p.get().strip(), e_nt.get().strip()
             if not n: return messagebox.showwarning("錯誤", "請輸入飛機名稱！", parent=w)
+            if any(v.get("name", "").lower() == n.lower() for v in self.data.get("hangar_vehicles", [])):
+                if not messagebox.askyesno("發現重複", f"機庫中已存在飛機【{n}】！\n確定要重複登記嗎？", parent=w): return
             
             self.data["hangar_vehicles"].append({"name": n, "source": s, "price": p, "note": nt, "garage": h_name, "type": "個人飛行載具"})
             save_data(self.all_data)
@@ -420,6 +422,8 @@ class GTAGarageApp:
         def save_edit(e=None):
             n, s, p, nt = e_n.get().strip(), c_s.get().strip(), e_p.get().strip(), e_nt.get().strip()
             if not n: return messagebox.showwarning("錯誤", "請輸入飛機名稱！", parent=w)
+            if any(v.get("name", "").lower() == n.lower() for v in self.data.get("hangar_vehicles", [])):
+                if not messagebox.askyesno("發現重複", f"機庫中已存在飛機【{n}】！\n確定要重複登記嗎？", parent=w): return
             
             v_data.update({"name": n, "source": s, "price": p, "note": nt, "type": "個人飛行載具"})
             save_data(self.all_data)
@@ -684,7 +688,9 @@ class GTAGarageApp:
             self.show_toast_progress("✅ 欄位顯示設定已更新！"); win.destroy()
         ttk.Button(win, text="💾 儲存並即時套用", command=save_cols, style="Success.TButton").pack(fill="x", padx=40, pady=(10, 20), ipady=4)
     def master_stopwatch_loop(self):
+        # 1. 處理任務碼錶
         if getattr(self, 'is_running', False):
+            import time
             now = time.time(); mode = getattr(self, 'sw_mode', 'STOPWATCH')
             if mode == "STOPWATCH": self.elapsed_time = now - self.start_time
             else: 
@@ -695,8 +701,48 @@ class GTAGarageApp:
                     if hasattr(self, 'stopwatch_window') and self.stopwatch_window.winfo_exists(): self.stopwatch_window.deiconify(); self.stopwatch_window.attributes("-topmost", True)
                 else: self.elapsed_time = rem
             self.update_stopwatch_ui()
-        self.root.after(50, self.master_stopwatch_loop)
+            
+        # 2. 處理系統運行時間 (Uptime)
+        if hasattr(self, 'lbl_uptime') and self.lbl_uptime.winfo_exists():
+            import time
+            e = int(time.time() - getattr(self, 'app_start_time', time.time()))
+            h, m, s = e // 3600, (e % 3600) // 60, e % 60
+            self.lbl_uptime.config(text=f"|  ⏳ 已運行: {h:02d}:{m:02d}:{s:02d}")
 
+        # 3. 獨家硬體級快捷鍵輪詢 (無須權限，完美穿透 GTA V)
+        if getattr(self, 'data', None) and self.data.get("app_settings", {}).get("tool_stopwatch", True):
+            try:
+                import ctypes
+                pk = self.data["app_settings"].get("hotkey_pause", "pause").lower()
+                sk = self.data["app_settings"].get("hotkey_start", "w").lower()
+                
+                def get_vk(k):
+                    km = {'pause': 0x13, 'shift': 0x10, 'ctrl': 0x11, 'alt': 0x12, 'enter': 0x0D, 'esc': 0x1B, 'tab': 0x09, 'space': 0x20, 'backspace': 0x08, 'page up': 0x21, 'page down': 0x22, 'end': 0x23, 'home': 0x24, 'insert': 0x2D, 'delete': 0x2E}
+                    if k in km: return km[k]
+                    if len(k) == 1 and 'a' <= k <= 'z': return ord(k.upper())
+                    if len(k) == 1 and '0' <= k <= '9': return ord(k)
+                    if k.startswith('f') and k[1:].isdigit() and 1 <= int(k[1:]) <= 12: return 0x6F + int(k[1:])
+                    return 0
+                    
+                vk_p = get_vk(pk); vk_s = get_vk(sk)
+                
+                # 🧠 智慧防呆：若正在系統內打字，則自動忽略快捷鍵
+                from tkinter import ttk
+                fw = self.root.focus_get()
+                is_typing = isinstance(fw, (tk.Entry, tk.Text, ttk.Combobox))
+                
+                if vk_p:
+                    state_p = (ctypes.windll.user32.GetAsyncKeyState(vk_p) & 0x8000) != 0
+                    if state_p and not getattr(self, '_prev_vk_p', False) and not is_typing: self.handle_pause_key()
+                    self._prev_vk_p = state_p
+                    
+                if vk_s:
+                    state_s = (ctypes.windll.user32.GetAsyncKeyState(vk_s) & 0x8000) != 0
+                    if state_s and not getattr(self, '_prev_vk_s', False) and not is_typing: self.handle_w_key()
+                    self._prev_vk_s = state_s
+            except: pass
+            
+        self.root.after(50, self.master_stopwatch_loop)
     def handle_pause_key(self, event=None):
         now = time.time()
         if now - getattr(self, 'last_pause_time', 0.0) < 0.4: self.last_pause_time = 0.0; self.root.after(0, self.action_reset)
@@ -1071,33 +1117,31 @@ class GTAGarageApp:
             
         ttk.Button(sf, text="💾 儲存並套用", command=save, style="Primary.TButton").pack(fill="x", padx=40, pady=(20, 20), ipady=4)
     def apply_settings(self):
-        st = self.data.get("app_settings", {}) if self.data else {"tool_stopwatch": True}
-        pk, sk = st.get("hotkey_pause", "pause"), st.get("hotkey_start", "w")
+        st = self.data.get("app_settings", {}) if getattr(self, 'data', None) else {"tool_stopwatch": True}
         if st.get("tool_stopwatch", True):
             try: self.tools_menu.entryconfig("⏱️ 呼叫任務碼錶", state="normal")
             except: pass
-            if "HAS_KEYBOARD" in globals() and HAS_KEYBOARD:
-                try: keyboard.unhook_all(); keyboard.add_hotkey(pk, self.handle_pause_key); keyboard.add_hotkey(sk, self.handle_w_key)
-                except: pass
-            else:
-                try: self.root.bind_all(f"<{pk.capitalize()}>", self.handle_pause_key)
-                except: pass
-                try: self.root.bind_all(f"<{sk.lower()}>", self.handle_w_key)
-                except: pass
         else:
             try: self.tools_menu.entryconfig("⏱️ 呼叫任務碼錶", state="disabled")
             except: pass
-            if "HAS_KEYBOARD" in globals() and HAS_KEYBOARD:
-                try: keyboard.unhook_all()
-                except: pass
-            try: self.root.unbind_all(f"<{pk.capitalize()}>")
-            except: pass
-            try: self.root.unbind_all(f"<{sk.lower()}>")
-            except: pass
     def setup_status_bar(self):
-        self.status_bar = tk.Label(self.root, text="💡 系統就緒。", bg="#111111", fg="#FF9800", font=FONT_BOLD, anchor="w", padx=15, pady=6); self.status_bar.pack(side="bottom", fill="x")
+        self.status_frame = tk.Frame(self.root, bg="#111111")
+        self.status_frame.pack(side="bottom", fill="x")
+        self.app_start_time = time.time()
+        
+        # 狀態訊息放左邊，佔據主要空間
+        self.status_bar = tk.Label(self.status_frame, text="💡 系統就緒。", bg="#111111", fg="#FF9800", font=FONT_BOLD, anchor="w", pady=6, padx=15)
+        self.status_bar.pack(side="left", fill="x", expand=True)
+        
+        # 運行時間放右邊
+        self.lbl_uptime = tk.Label(self.status_frame, text="|  ⏳ 已運行: 00:00:00", bg="#111111", fg="#00BCD4", font=FONT_BOLD, padx=15, pady=6)
+        self.lbl_uptime.pack(side="right")
+        
+        
         self.root.after(1000, self.apply_new_tags_loop)
 
+    def update_uptime_loop(self):
+        pass  # 此迴圈已廢棄，功能整合至 master_stopwatch_loop 中
     def apply_new_tags_loop(self):
         if getattr(self, 'data', None):
             import datetime; now = datetime.datetime.now()
@@ -1541,22 +1585,20 @@ class GTAGarageApp:
         txt.pack(side="left", fill="both", expand=True)
         sb.config(command=txt.yview)
         
-        bulletin = """【系統版本 V1.14.7 - 旗艦智慧體驗大升級】
-更新日期：2026-09-27
+        bulletin = """【系統版本 V1.14.14 - 硬體級快捷鍵穿透包】
+更新日期：2026-09-29
 
-✨ [V1.14 重點旗艦功能]
-1. 🖱️ 全域右鍵系統：所有輸入框（包含新增、修改與筆記）全面支援滑鼠右鍵「複製/貼上/剪下/全選」。
-2. 🏆 生涯黃金高亮：取得方式設定為「生涯進度」或「生涯成就」的車輛，將自動套用專屬黃金粗體字！
-3. 🤖 智慧輸入引擎：選取「獎品/轉盤/生涯」類別時，按下 Enter 將自動填入 0 元並秒存檔。
-4. 📏 滿版自適應：隱藏自訂欄位後，剩下的表格會自動等比例拉伸，完美填滿畫面不留白。
-5. 🏷️ 取得方式獨立：「管理取得方式」已移至上方【載具 (V)】選單，並修復所有選單圖示對齊。
-6. 🛡️ 點擊防護盾：修復首頁清單點擊空白處會異常選取上方帳號的底層 BUG。
+✨ [V1.14.14 獨家黑科技]
+1. 🕹️ 硬體級防護穿透：捨棄傳統快捷鍵模組，改用底層 API 硬體輪詢，完全無視 GTA V 的全螢幕攔截，且不再需要「系統管理員權限」！
+2. 🧠 智慧打字防呆：系統會自動偵測您是否正在輸入資料 (如輸入車輛名稱)。若在打字中按下快捷鍵 (如 W)，系統會聰明地忽略，避免誤觸碼錶！
+3. 📜 公告連動承諾：持續履行約定，自動將本次升級內容同步寫入本公告面板！
 
-🔧 [V1.13 核心防護與優化回顧]
-- 🚀 智慧登入引擎：首頁輸入 ID 即可一秒登入或自動建立存檔。
-- 🚨 廢車回收廠防護：自訂週四更新前延後提醒，預防吃車災情。
-- 🔍 重複載具白名單：樹狀表格支援多選合併，可將車輛加入「👀 允許重複」白名單。
-- 💾 儲存神經貫通：徹底排除碼錶特殊快捷鍵衝突，導致全域設定無法儲存的致命崩潰。
+✨ [V1.14 前期重點回顧]
+1. 🔒 車庫防重複：新增、擴建、更名撞名「強制攔截」，其他區域彈窗確認。
+2. ⏱️ 碼錶時脈同步：整合「任務碼錶」與「運行時間」的底層更新迴圈，解決卡頓。
+3. ➡️ 佈局優化：「已運行時間」移至系統列最右側，完美平衡視覺。
+4. 🖱️ 全域右鍵系統：所有輸入框支援滑鼠右鍵「複製/貼上/剪下/全選」。
+5. 🏆 生涯黃金高亮：取得方式設定為「生涯進度」，自動套用黃金粗體字。
 """
         txt.insert("1.0", bulletin)
         txt.config(state="disabled")
@@ -1715,6 +1757,8 @@ class GTAGarageApp:
         if not self.data: return
         n = self.ewn.get().strip()
         if not n: return
+        if any(w.get("name", "").lower() == n.lower() for w in self.data.get("wishlist", [])):
+            if not messagebox.askyesno("發現重複", f"願望清單中已存在【{n}】！\n確定要重複加入嗎？"): return
         try: p = int(self.ewp.get().strip() or 0)
         except: p = 0
         self.data.setdefault("wishlist", []).append({"name": n, "price": p, "notes": self.ewo.get()}); save_data(self.all_data); self.log_action(f"🛒 加入願望：{n}"); self.ewn.delete(0, tk.END); self.ewp.delete(0, tk.END); self.ewo.delete(0, tk.END); self.refresh_wishlist_table(); self.show_toast_progress("🛒 願望已加入！")
@@ -2339,6 +2383,8 @@ class GTAGarageApp:
         if not self.data: return
         n, l, i = self.combo_spec_name.get().strip(), self.combo_spec_location.get().strip() or "未分類", self.combo_inner_car.get().strip()
         if not n: return
+        if any(sv.get("name", "").lower() == n.lower() for sv in self.data.get("special_vehicles", [])):
+            if not messagebox.askyesno("發現重複", f"已登記過特種載具/基地【{n}】！\n重複登記可能導致存放混亂，確定要繼續嗎？"): return
         self.data["special_vehicles"].append({"name": n, "location": l, "inner_vehicle": i if i != "無" else "", "can_store": self.var_can_store.get(), "locked": False, "pinned": False, "updated_at": time.strftime("%Y-%m-%d %H:%M")}) 
         self.sync_vehicles_from_special(); save_data(self.all_data); self.refresh_special_table(); self.update_garage_comboboxes(); self.apply_filters(); self.combo_spec_name.set(""); self.combo_inner_car.set(""); self.var_can_store.set(False); self.on_main_spec_carrier_changed(); self.combo_spec_location.set("未分類"); self.show_toast_progress("🚁 建立成功！")
 
@@ -2618,7 +2664,7 @@ class GTAGarageApp:
             try: nl = int(el.get().strip() or 10)
             except: nl = 10
             dl = self.data.get("app_settings", {}).get("disable_all_limits", False)
-            if nn != old_name and nn in self.data["garages"]: return messagebox.showerror("錯誤", "已存在！")
+            if nn != old_name and nn in self.data["garages"]: return messagebox.showerror("錯誤", f"車庫【{nn}】已存在，不可改為此名稱！", parent=win)
             if not dl and nl < self.count_cars_in_garage(old_name): return messagebox.showerror("錯誤", "不可小於目前數量！")
             ix = self.data["garages"].index(old_name); self.data["garages"][ix] = nn; self.data["garage_limits"][nn] = nl
             if nn != old_name:
@@ -2662,7 +2708,10 @@ class GTAGarageApp:
             ls = ta.get("1.0", tk.END).strip().split('\n'); a = 0; dg = self.data.get("app_settings", {}).get("default_garage_limit", 10)
             for l in ls:
                 n = l.strip()
-                if not n or n in self.data["garages"]: continue
+                if not n: continue
+                if n in self.data["garages"]:
+                    messagebox.showerror("錯誤", f"車庫【{n}】已存在，已自動跳過！", parent=win)
+                    continue
                 self.data["garages"].append(n); self.data["garage_limits"][n] = dg; a += 1
             if a > 0:
                 if "garage_timestamps" not in self.data: self.data["garage_timestamps"] = {}
@@ -2680,24 +2729,31 @@ class GTAGarageApp:
         try: f = int(self.engf.get().strip() or 1)
         except: f = 1
         ft = self.cft.get(); dg = self.data.get("app_settings", {}).get("default_garage_limit", 10)
+        
+        if n in self.data["garages"] and f == 1:
+            return messagebox.showerror("錯誤", f"車庫【{n}】已存在，無法重複新增！")
+            
         lim = simpledialog.askinteger("上限", f"輸入上限\n(預設 {dg}):", initialvalue=dg, minvalue=1)
         if not lim: return 
         an = []
         if n not in self.data["garages"]: self.data["garages"].append(n); self.data["garage_limits"][n] = lim; an.append(n)
-        elif f == 1: return messagebox.showerror("錯誤", "名稱重複！")
+        
         if f > 1:
             for i in range(1, f + 1):
                 fn = f"{n} - {'B' if '地下' in ft else '車庫'}{i}"
-                if fn not in self.data["garages"]: self.data["garages"].append(fn); self.data["garage_limits"][fn] = lim; an.append(fn)
+                if fn not in self.data["garages"]: 
+                    self.data["garages"].append(fn); self.data["garage_limits"][fn] = lim; an.append(fn)
+                else:
+                    messagebox.showerror("錯誤", f"附屬車庫【{fn}】已存在，已自動跳過！")
+                    
         if "garage_timestamps" not in self.data: self.data["garage_timestamps"] = {}
         for fn in an: self.data["garage_timestamps"][fn] = time.strftime("%Y-%m-%d %H:%M")
         save_data(self.all_data); self.show_toast_progress(f"🏠 成功！"); self.refresh_garage_table(); self.update_garage_comboboxes(); self.eng.delete(0, tk.END); self.engf.delete(0, tk.END); self.engf.insert(0, "1"); self.eng.focus()
-
     def add_sub_floor(self, bn):
         fn = simpledialog.askstring("擴建", f"輸入【{bn}】的新附屬名稱:")
         if not fn: return
         f_n = f"{bn} - {fn}"
-        if f_n in self.data["garages"]: return messagebox.showerror("錯誤", "已存在！")
+        if f_n in self.data["garages"]: return messagebox.showerror("錯誤", f"附屬車庫【{f_n}】已存在，無法重複擴建！")
         dg = self.data.get("app_settings", {}).get("default_garage_limit", 10)
         lim = simpledialog.askinteger("上限", f"上限:", initialvalue=dg, minvalue=1)
         if not lim: return
@@ -2887,6 +2943,8 @@ class GTAGarageApp:
             el = ee.get("1.0", tk.END).strip()
             
             if not n: return messagebox.showwarning("提示", "請輸入任務名稱！", parent=win)
+            if any(g.get("mission_name", "").lower() == n.lower() and g.get("category", "") == cat for g in self.data.get("guides", [])):
+                if not messagebox.askyesno("發現重複", f"【{cat}】中已存在任務【{n}】！\n確定要重複新增嗎？", parent=win): return
             
             self.data.setdefault("guides", []).append({
                 "category": cat,
