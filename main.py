@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_KEYBOARD = False
 
-APP_VERSION = "1.14.14"
+APP_VERSION = "1.14.24"
 DATA_FILE = "gta5_garage_data.json"
 
 ACQUIRE_OPTIONS = ["購買獲得", "任務獲得", "生涯成就", "賭場轉盤", "搶劫獲得", "車友會", "其他備註"]
@@ -172,7 +172,43 @@ class GTAGarageApp:
         self.current_garage_car_indices = []
         self.root.after(50, self.master_stopwatch_loop)
         
-        self.notebook = ttk.Notebook(root); self.notebook.pack(fill="both", expand=True, padx=8, pady=5); self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed); self.notebook.bind("<Button-3>", self.show_tab_context_menu)
+        self.notebook = ttk.Notebook(root); self.notebook.pack(fill="both", expand=True, padx=8, pady=5)
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        self.notebook.bind("<Button-3>", self.show_tab_context_menu)
+        
+        # 🌟 實裝受保護的分頁拖曳 (系統分頁鎖定右側)
+        def on_tab_press(event):
+            try: 
+                idx = self.notebook.index(f"@{event.x},{event.y}")
+                txt = self.notebook.tab(idx, "text").strip()
+                if "⭐" in txt or "|" in txt: self._drag_data = None
+                else: self._drag_data = {"start": idx}
+            except: self._drag_data = None
+            
+        def on_tab_motion(event):
+            if not getattr(self, '_drag_data', None): return
+            try:
+                ti = self.notebook.index(f"@{event.x},{event.y}")
+                si = self._drag_data["start"]
+                txt = self.notebook.tab(ti, "text").strip()
+                if "⭐" in txt or "|" in txt: return
+                if ti != si:
+                    self.notebook.insert(ti, si)
+                    self._drag_data["start"] = ti
+            except: pass
+            
+        def on_tab_release(event):
+            if not getattr(self, '_drag_data', None): return
+            self._drag_data = None
+            co = [self.notebook.tab(i, "text").strip() for i in self.notebook.tabs()]
+            clean_co = [t for t in co if "⭐" not in t and "|" not in t]
+            self.all_data.setdefault("app_config", {})["tab_order"] = clean_co
+            save_data(self.all_data)
+            
+        self.notebook.bind("<ButtonPress-1>", on_tab_press)
+        self.notebook.bind("<B1-Motion>", on_tab_motion)
+        self.notebook.bind("<ButtonRelease-1>", on_tab_release)
+        
         self.tab_bulletin = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_account = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_vehicles = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_non_personal = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_pegasus = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_special = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_garages = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_wishlist = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_guides = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_statistics = tk.Frame(self.notebook, bg=COLOR_MAIN_BG); self.tab_logs = tk.Frame(self.notebook, bg=COLOR_MAIN_BG)
 
         self.tab_hangars = ttk.Frame(self.notebook)
@@ -191,21 +227,23 @@ class GTAGarageApp:
             "📊 統計資料": getattr(self, 'tab_statistics', None)
         }
         
-        # 🧹 清理舊的排序存檔，拔除舊的名稱
+        # 🌟 系統分頁強制右置邏輯
         raw_order = app_config.get("tab_order", list(self.tab_widgets.keys()))
-        clean_order = [t for t in raw_order if t in self.tab_widgets and "⭐" not in t and "公告" not in t and "帳號" not in t and "日誌" not in t]
+        clean_order = [t for t in raw_order if t in self.tab_widgets and "⭐" not in t and "|" not in t]
+        sys_order = ["⭐【系統公告】", "⭐【帳號管理】", "⭐【操作日誌】"]
         
-        # 📌 強制將系統類標籤釘選在最左邊
-        self.tab_order = ["⭐【系統公告】", "⭐【帳號管理】", "⭐【操作日誌】"] + clean_order
-        
-        for expected_tab in self.tab_widgets.keys():
-            if expected_tab not in self.tab_order: 
-                self.tab_order.append(expected_tab)
-                
+        self.tab_order = clean_order
         for t_name in self.tab_order:
             if t_name in self.tab_widgets and self.tab_widgets[t_name] is not None:
                 self.notebook.add(self.tab_widgets[t_name], text=f" {t_name} ")
+                
+        self.tab_separator = tk.Frame(self.notebook, bg="#212121")
+        self.notebook.add(self.tab_separator, text="   |   ", state="disabled")
         
+        for t_name in sys_order:
+            if t_name in self.tab_widgets and self.tab_widgets[t_name] is not None:
+                self.notebook.add(self.tab_widgets[t_name], text=f" {t_name} ")
+                
         self.setup_menu_bar(); self.setup_profile_bar(); self.setup_status_bar(); self.setup_bulletin_tab(); self.setup_account_tab(); self.setup_vehicles_tab(); self.setup_non_personal_tab(); self.setup_pegasus_tab(); self.setup_special_tab(); self.setup_garages_tab(); self.setup_hangars_tab(); self.setup_wishlist_tab(); self.setup_guides_tab(); self.setup_statistics_tab(); self.setup_logs_tab()
         self.apply_settings(); self.check_login_status()
 
@@ -406,7 +444,7 @@ class GTAGarageApp:
 
     def edit_hangar_vehicle(self, event=None):
         # 🛡️ 拒絕空白處點擊：確認滑鼠 Y 座標底下真的有資料列！
-        if event and not self.tv_hangar_vh.identify_row(event.y): return
+        if event and self.tv_hangar_vh.identify_region(event.x, event.y) not in ("cell", "tree", "item"): return
         
         # 🛡️ 拒絕無限視窗：如果修改視窗已經開著，就直接退回，不開新的！
         if self.check_win('hangar_edit_win'): return
@@ -511,19 +549,11 @@ class GTAGarageApp:
         if getattr(self, 'current_id', None) and getattr(self, 'data', None):
             if self.data.get("app_settings", {}).get("auto_backup", True):
                 try:
-                    if not os.path.exists("backups"): os.makedirs("backups")
-                    bk_path = os.path.join("backups", f"gta_auto_backup_{self.current_id}_{time.strftime('%Y%m%d_%H%M%S')}.json")
-                    
-                    # 只抽出自己的資料進行專屬存檔，絕不混入其他帳號！
+                    # 自動備份改為單檔無限覆蓋，存放於主目錄
+                    bk_path = f"GTA_AutoBackup_{self.current_id}.json"
                     bk_data = {"profiles": {self.current_id: self.data}}
                     with open(bk_path, "w", encoding="utf-8") as bk_f:
                         json.dump(bk_data, bk_f, ensure_ascii=False, indent=4)
-                        
-                    # 維持備份數量上限 (預設保留 5 份)
-                    files = sorted(glob.glob(os.path.join("backups", f"gta_auto_backup_{self.current_id}_*.json")))
-                    while len(files) > 5: 
-                        os.remove(files[0])
-                        files.pop(0)
                 except: pass
                 
         self.root.destroy()
@@ -909,20 +939,23 @@ class GTAGarageApp:
     def backup_data(self):
         if not getattr(self, 'current_id', None) or not getattr(self, 'data', None):
             return messagebox.showinfo("備份", "請先登入帳號，才能進行單一角色備份。")
-        fp = filedialog.asksaveasfilename(title="選擇儲存位置", initialfile=f"GTA_Backup_{self.current_id}.json", defaultextension=".json", filetypes=[("JSON", "*.json")])
-        if fp:
-            try:
-                # 🌟 只將當前角色的資料包裝成標準格式並匯出
-                bk_data = {"profiles": {self.current_id: self.data}}
-                with open(fp, "w", encoding="utf-8") as f:
-                    json.dump(bk_data, f, ensure_ascii=False, indent=4)
-                self.set_status("✅ 單一角色備份完成", "#4CAF50")
-                messagebox.showinfo("成功", f"已成功將角色【{self.current_id}】備份至：\n{fp}")
-            except Exception as e:
-                messagebox.showerror("錯誤", f"備份失敗：{e}")
-
+            
+        # 🌟 單檔覆蓋命名：直接存在主程式同目錄
+        file_name = f"GTA_Backup_{self.current_id}.json"
+        
+        try:
+            bk_data = {"profiles": {self.current_id: self.data}}
+            with open(file_name, "w", encoding="utf-8") as f:
+                json.dump(bk_data, f, ensure_ascii=False, indent=4)
+            self.set_status(f"✅ 【{self.current_id}】備份完成", "#4CAF50")
+            
+            # 顯示成功的簡潔提示
+            messagebox.showinfo("✅ 單檔備份成功", f"已成功更新角色【{self.current_id}】的專屬備份檔！\n\n檔名：{file_name}\n位置：與主程式同資料夾 (無限覆蓋)")
+        except Exception as e:
+            messagebox.showerror("錯誤", f"備份失敗：{e}")
     def restore_data(self):
-        fp = filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
+        initial_d = "."
+        fp = filedialog.askopenfilename(initialdir=initial_d, filetypes=[("JSON", "*.json")])
         if fp:
             try:
                 with open(fp, "r", encoding="utf-8") as f: 
@@ -1219,6 +1252,8 @@ class GTAGarageApp:
             
             tab_name = self.notebook.tab(int(tab_id), "text").strip()
             
+            if "|" in tab_name or "⭐" in tab_name: return
+
             if not hasattr(self, 'tab_popup_menu'): 
                 self.tab_popup_menu = tk.Menu(self.root, tearoff=0, bg="#2d2d2d", fg="white", font=("Microsoft JhengHei", 10))
                 
@@ -1585,20 +1620,22 @@ class GTAGarageApp:
         txt.pack(side="left", fill="both", expand=True)
         sb.config(command=txt.yview)
         
-        bulletin = """【系統版本 V1.14.14 - 硬體級快捷鍵穿透包】
-更新日期：2026-09-29
+        bulletin = """【系統版本 V1.14.24 - 根目錄單檔備份包】
+更新日期：2026-10-04
 
-✨ [V1.14.14 獨家黑科技]
-1. 🕹️ 硬體級防護穿透：捨棄傳統快捷鍵模組，改用底層 API 硬體輪詢，完全無視 GTA V 的全螢幕攔截，且不再需要「系統管理員權限」！
-2. 🧠 智慧打字防呆：系統會自動偵測您是否正在輸入資料 (如輸入車輛名稱)。若在打字中按下快捷鍵 (如 W)，系統會聰明地忽略，避免誤觸碼錶！
-3. 📜 公告連動承諾：持續履行約定，自動將本次升級內容同步寫入本公告面板！
+✨ [V1.14.24 極致簡潔檔案管理]
+1. 📁 徹底斷捨離：不再生成 `backups` 資料夾，所有備份行為皆直接在「主程式同目錄」中執行，管理更直覺。
+2. 🔄 雙重單檔覆蓋：
+   - 手動備份檔：固定為 `GTA_Backup_角色名.json`
+   - 自動備份檔：固定為 `GTA_AutoBackup_角色名.json`
+   兩種備份皆採無限覆蓋同一檔案機制，確保您的資料夾永遠乾淨整齊。
+3. 📥 還原定位：載入備份時，選取視窗將直接開啟主程式所在的根目錄。
 
 ✨ [V1.14 前期重點回顧]
-1. 🔒 車庫防重複：新增、擴建、更名撞名「強制攔截」，其他區域彈窗確認。
-2. ⏱️ 碼錶時脈同步：整合「任務碼錶」與「運行時間」的底層更新迴圈，解決卡頓。
-3. ➡️ 佈局優化：「已運行時間」移至系統列最右側，完美平衡視覺。
-4. 🖱️ 全域右鍵系統：所有輸入框支援滑鼠右鍵「複製/貼上/剪下/全選」。
-5. 🏆 生涯黃金高亮：取得方式設定為「生涯進度」，自動套用黃金粗體字。
+1. ⚡ 一鍵秒存：點擊「手動備份」直接跳過儲存視窗，瞬間完成。
+2. 🖱 攻略新增直覺化：攻略筆記右上角新增實體按鈕。
+3. 📌 系統分頁靠右：新增分隔線 ( | )，將系統核心分頁鎖定於最右側。
+4. 🖱 分頁自由拖曳：資產分頁支援左鍵按住左右拖曳，並自動記憶排序。
 """
         txt.insert("1.0", bulletin)
         txt.config(state="disabled")
@@ -2279,7 +2316,7 @@ class GTAGarageApp:
         ttk.Button(bf, text="❌ 取消", command=win.destroy, style="Secondary.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
 
     def on_vehicle_double_click(self, event):
-        if not event.widget.identify_row(event.y): return
+        if event.widget.identify_region(event.x, event.y) not in ("cell", "tree", "item"): return
         self.open_edit_window(event)
 
     def open_edit_window(self, event=None, pre_selected=None):
@@ -2287,7 +2324,7 @@ class GTAGarageApp:
         if not self.data: return
         sel = pre_selected if pre_selected is not None else self.get_active_tree(event).selection()
         if not sel: return
-        if event and not self.get_active_tree(event).identify_row(event.y): return
+        if event and self.get_active_tree(event).identify_region(event.x, event.y) not in ("cell", "tree", "item"): return
 
         for i in sel:
             if self.data["vehicles"][int(i)].get("locked", False): return messagebox.showwarning("鎖定", "⚠️ 資料已鎖定！")
@@ -2371,7 +2408,7 @@ class GTAGarageApp:
         self.special_popup_menu = tk.Menu(self.root, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL); self.tree_special.bind("<Button-3>", self.show_special_context_menu)
 
     def on_special_double_click(self, event):
-        if not event.widget.identify_row(event.y): return
+        if event.widget.identify_region(event.x, event.y) not in ("cell", "tree", "item"): return
         self.open_special_edit_window(event)
 
     def on_main_spec_carrier_changed(self, event=None):
@@ -2432,7 +2469,7 @@ class GTAGarageApp:
 
     def open_special_edit_window(self, event=None):
         if self.check_win('special_edit_window'): return
-        if event and not self.tree_special.identify_row(event.y): return
+        if event and self.tree_special.identify_region(event.x, event.y) not in ("cell", "tree", "item"): return
         s = self.tree_special.selection()
         if not s or len(s) > 1: return 
         i = int(s[0]); sv = self.data["special_vehicles"][i]
@@ -2794,41 +2831,48 @@ class GTAGarageApp:
     def setup_guides_tab(self):
         af = tk.Frame(self.tab_guides, bg=COLOR_MAIN_BG)
         af.pack(fill="x", padx=15, pady=(15, 5))
+        tk.Label(af, text="💡 提示：下方清單按【右鍵】可管理。👇 中央分隔線可上下拖曳調整視窗大小！", font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="#a8e6cf").pack(side="left")
+        ttk.Button(af, text="➕ 新增任務攻略", command=self.open_add_guide_window, style="Primary.TButton").pack(side="right", padx=5)
         
-        # 提示文字，引導用戶去上方選單與使用右鍵
-        tk.Label(af, text="💡 提示：按上方【新增 (N)】建立攻略。在下方清單按【滑鼠右鍵】可編輯或刪除資料。", font=FONT_NORMAL, bg=COLOR_MAIN_BG, fg="#a8e6cf").pack(side="left")
+        # 🌟 導入 PanedWindow，讓上下比例可以自由拉伸
+        pw = tk.PanedWindow(self.tab_guides, orient="vertical", bg="#424242", sashwidth=8, sashrelief="raised")
+        pw.pack(fill="both", expand=True, padx=15, pady=10)
         
-        tf = tk.Frame(self.tab_guides, bg=COLOR_MAIN_BG)
-        tf.pack(fill="both", expand=True, padx=15, pady=10)
+        tf_top = tk.Frame(pw, bg=COLOR_MAIN_BG)
+        pw.add(tf_top, minsize=100, stretch="always")
         
-        self.txt_guide_preview = tk.Text(tf, font=FONT_NORMAL, bg="#111111", fg="#a8e6cf", relief="solid", height=5)
-        self.txt_guide_preview.pack(side="bottom", fill="x", pady=(10, 0))
-        self.txt_guide_preview.insert("1.0", "💡 點擊上方的任務清單，這裡會「垂直顯示」完整的多行菁英條件...")
-        self.txt_guide_preview.config(state="disabled")
-        
-        self.tree_guides = ttk.Treeview(tf, columns=("category", "name", "elite", "time"), show="headings", selectmode="extended")
+        self.tree_guides = ttk.Treeview(tf_top, columns=("category", "name", "elite", "time"), show="headings", selectmode="extended")
         self.tree_guides.heading("category", text="系列大標題")
         self.tree_guides.heading("name", text="任務名稱")
         self.tree_guides.heading("elite", text="菁英條件 (預覽)")
         self.tree_guides.heading("time", text="更新時間")
-        
         self.tree_guides.column("category", width=160, anchor="w", stretch=False)
         self.tree_guides.column("name", width=180, anchor="w", stretch=False)
         self.tree_guides.column("elite", width=420, anchor="w", stretch=True)
         self.tree_guides.column("time", width=140, anchor="center", stretch=False)
         
-        sb = ttk.Scrollbar(tf, orient="vertical", command=self.tree_guides.yview)
-        self.tree_guides.configure(yscrollcommand=sb.set)
-        sb.pack(side="right", fill="y")
+        sb1 = ttk.Scrollbar(tf_top, orient="vertical", command=self.tree_guides.yview)
+        self.tree_guides.configure(yscrollcommand=sb1.set)
+        sb1.pack(side="right", fill="y")
         self.tree_guides.pack(side="left", fill="both", expand=True)
         
         self.tree_guides.bind("<Double-1>", self.open_guide_edit_window)
         self.tree_guides.bind("<<TreeviewSelect>>", self.on_guide_select)
-        
-        # 🎯 綁定右鍵專屬選單
         self.guide_popup_menu = tk.Menu(self.root, tearoff=0, bg=COLOR_CARD_BG, fg="white", font=FONT_NORMAL)
         self.tree_guides.bind("<Button-3>", self.show_guide_context_menu)
-
+        
+        tf_bot = tk.Frame(pw, bg=COLOR_MAIN_BG)
+        pw.add(tf_bot, minsize=120)
+        
+        # 🌟 為多行文字區塊增加專屬捲軸、高度翻倍與調整字體大小/行距
+        sb2 = ttk.Scrollbar(tf_bot, orient="vertical")
+        sb2.pack(side="right", fill="y")
+        self.txt_guide_preview = tk.Text(tf_bot, font=("Microsoft JhengHei", 12), bg="#111111", fg="#a8e6cf", relief="solid", height=12, yscrollcommand=sb2.set, spacing2=5, padx=15, pady=15)
+        self.txt_guide_preview.pack(side="left", fill="both", expand=True)
+        sb2.config(command=self.txt_guide_preview.yview)
+        
+        self.txt_guide_preview.insert("1.0", "💡 點擊上方的任務清單，這裡會「垂直顯示」完整的多行菁英條件...")
+        self.txt_guide_preview.config(state="disabled")
     def on_guide_select(self, event=None):
         if not self.data or "guides" not in self.data: return
         sel = self.tree_guides.selection()
@@ -2974,8 +3018,7 @@ class GTAGarageApp:
         ttk.Button(bf, text="關閉", command=win.destroy, style="Secondary.TButton").pack(side="right", fill="x", expand=True, padx=(5, 0), ipady=4)
 
     def open_guide_edit_window(self, event=None):
-        if event and not self.tree_guides.identify_row(event.y): 
-            return
+        if event and self.tree_guides.identify_region(event.x, event.y) not in ("cell", "tree", "item"): return
             
         if self.check_win('guide_edit_window'): return
         if not self.data or "guides" not in self.data: return
