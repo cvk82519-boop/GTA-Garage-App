@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_KEYBOARD = False
 
-APP_VERSION = "1.14.24"
+APP_VERSION = "1.14.25"
 DATA_FILE = "gta5_garage_data.json"
 
 ACQUIRE_OPTIONS = ["購買獲得", "任務獲得", "生涯成就", "賭場轉盤", "搶劫獲得", "車友會", "其他備註"]
@@ -541,24 +541,30 @@ class GTAGarageApp:
         self.all_data.setdefault("app_config", {})["state"] = self.root.state()
         if self.root.state() == "normal": self.all_data["app_config"]["geometry"] = self.root.geometry()
         
-        # 1. 正常儲存全域總資料庫
+        # 1. 正常儲存全域總資料庫 (這是系統運作必備的主存檔)
         with open(DATA_FILE, "w", encoding="utf-8") as f: 
             json.dump(self.all_data, f, ensure_ascii=False, indent=4)
             
-        # 2. 🌟 角色獨立自動備份
+        # 2. 🌟 角色獨立自動備份 (根據設定決定)
         if getattr(self, 'current_id', None) and getattr(self, 'data', None):
+            bk_path = f"GTA_AutoBackup_{self.current_id}.json"
+            
+            # 嚴格判定開關
             if self.data.get("app_settings", {}).get("auto_backup", True):
                 try:
-                    # 自動備份改為單檔無限覆蓋，存放於主目錄
-                    bk_path = f"GTA_AutoBackup_{self.current_id}.json"
                     bk_data = {"profiles": {self.current_id: self.data}}
                     with open(bk_path, "w", encoding="utf-8") as bk_f:
                         json.dump(bk_data, bk_f, ensure_ascii=False, indent=4)
                 except: pass
+            else:
+                # 🛡️ 實體銷毀：若使用者已關閉自動備份，則刪除該檔案，避免混淆
+                try:
+                    if os.path.exists(bk_path):
+                        os.remove(bk_path)
+                except: pass
                 
         self.root.destroy()
         sys.exit(0)
-
     def show_toast_progress(self, message="✅ 操作成功"):
         toast = tk.Toplevel(self.root); toast.overrideredirect(True); toast.attributes("-topmost", True); toast.configure(bg=COLOR_CARD_BG)
         self.root.update_idletasks()
@@ -1620,22 +1626,17 @@ class GTAGarageApp:
         txt.pack(side="left", fill="both", expand=True)
         sb.config(command=txt.yview)
         
-        bulletin = """【系統版本 V1.14.24 - 根目錄單檔備份包】
+        bulletin = """【系統版本 V1.14.25 - 自動備份絕對開關包】
 更新日期：2026-10-04
 
-✨ [V1.14.24 極致簡潔檔案管理]
-1. 📁 徹底斷捨離：不再生成 `backups` 資料夾，所有備份行為皆直接在「主程式同目錄」中執行，管理更直覺。
-2. 🔄 雙重單檔覆蓋：
-   - 手動備份檔：固定為 `GTA_Backup_角色名.json`
-   - 自動備份檔：固定為 `GTA_AutoBackup_角色名.json`
-   兩種備份皆採無限覆蓋同一檔案機制，確保您的資料夾永遠乾淨整齊。
-3. 📥 還原定位：載入備份時，選取視窗將直接開啟主程式所在的根目錄。
+✨ [V1.14.25 絕對開關機制]
+1. 🛡️ 眼見為憑的銷毀：重寫關閉程式時的判定邏輯，當您在設定中關閉「自動備份」時，系統會主動將遺留的 `GTA_AutoBackup_角色名.json` 實體刪除，不再造成混淆。
 
 ✨ [V1.14 前期重點回顧]
-1. ⚡ 一鍵秒存：點擊「手動備份」直接跳過儲存視窗，瞬間完成。
-2. 🖱 攻略新增直覺化：攻略筆記右上角新增實體按鈕。
-3. 📌 系統分頁靠右：新增分隔線 ( | )，將系統核心分頁鎖定於最右側。
-4. 🖱 分頁自由拖曳：資產分頁支援左鍵按住左右拖曳，並自動記憶排序。
+1. 📁 單檔覆蓋備份：手動/自動備份皆改為單檔無限覆蓋，並移至根目錄與主程式放一起，徹底捨棄 backups 資料夾。
+2. ⚡ 一鍵秒存：點擊「手動備份」直接跳過儲存視窗，瞬間完成。
+3. 🖱 攻略新增直覺化：攻略筆記右上角新增實體按鈕。
+4. 📌 系統分頁靠右：新增分隔線 ( | )，將系統核心分頁鎖定於最右側。
 """
         txt.insert("1.0", bulletin)
         txt.config(state="disabled")
